@@ -4,7 +4,7 @@
 Local price comparison web app using an npm workspaces monorepo: Fastify API backend (`server/`) and React + Vite frontend (`web/`).
 
 ## Prerequisites & Setup
-- **Node 24+ required**: Backend uses Node's native `node:sqlite` (`DatabaseSync`).
+- **Node 24+ required**: Backend uses Node's native `node:sqlite` (`DatabaseSync`). Declared in `engines` (root `package.json`) and `.nvmrc`.
 - **Playwright Chromium**: Run `npx playwright install chromium` for browser-based scraping fallback.
 - Install dependencies: `npm install`
 
@@ -17,6 +17,7 @@ Local price comparison web app using an npm workspaces monorepo: Fastify API bac
 - `npm run dev -w web`: Runs frontend only with Vite.
 
 ### Verification & Build
+- `npm run verify`: Runs both typechecks (`typecheck -w server` and `typecheck -w web`) in one step.
 - `npm run typecheck -w server`: Typecheck backend (`tsc --noEmit`).
 - `npm run typecheck -w web`: Typecheck frontend (`tsc --noEmit`).
 - `npm run build`: Builds frontend (`web/dist`) via `tsc --noEmit && vite build`.

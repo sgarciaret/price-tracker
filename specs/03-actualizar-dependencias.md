@@ -1,6 +1,6 @@
 # SPEC 03 — Actualización de dependencias del monorepo
 
-> **Status:** Aprobado
+> **Status:** Implementado
 > **Depends on:** —
 > **Date:** 2026-10-03
 > **Objective:** Actualizar a sus versiones actuales las dependencias desactualizadas del proyecto (Vite 8, Zod 4 con validación declarativa en Fastify, TypeScript 6 y varios bumps menores) sin cambiar el comportamiento de la aplicación.
@@ -85,24 +85,24 @@ Contrato HTTP que se conserva tal cual (lo consume `web/src/api.ts`):
 
 ## Acceptance criteria
 
-- [ ] `npm run verify` termina sin errores (typecheck de `server` y de `web`).
-- [ ] `npm run build` termina sin errores y genera `web/dist/index.html`.
-- [ ] `npm audit` informa de 0 vulnerabilidades.
-- [ ] El `package.json` de la raíz declara `"engines": { "node": ">=24" }` y existe `.nvmrc` con `24`.
-- [ ] `npm ls typescript` muestra `typescript@6.x` en `server` y en `web`, y `@types/node` sigue en `24.x`.
-- [ ] `npm outdated` ya no muestra `vite`, `zod`, `@fastify/cors`, `p-limit`, `concurrently` ni `@vitejs/plugin-react` por debajo de la versión fijada en este spec.
-- [ ] `npm run dev` arranca la API en 3001 y Vite en 5173, y `GET http://localhost:5173/api/products` devuelve 200 con JSON.
-- [ ] `npm run build && npm start` sirve la app en 3001 y la ruta `/products/1` devuelve `index.html`.
-- [ ] `POST /api/products` con `{"name":""}` devuelve 400 con `{"error": string}`.
-- [ ] `POST /api/products` con un `image_url` que no es una URL válida devuelve 400.
-- [ ] `POST /api/products` con `{"name":"Prueba"}` devuelve 201 y el producto aparece en `GET /api/products`.
-- [ ] `GET /api/products/999999` devuelve 404 con `{"error": string}`.
-- [ ] `POST /api/products/:id/pages` con una URL que no es `http(s)` devuelve 400 con el mensaje «Debe ser http(s)».
-- [ ] `PUT /api/pages/:id` con un `css_selector` demasiado largo devuelve 400.
-- [ ] `DELETE /api/products/:id` devuelve 204 y el producto desaparece del listado.
-- [ ] Ningún endpoint cambia de forma: mismos códigos de estado y mismo campo `error` en las respuestas de fallo.
-- [ ] No hay cambios en el esquema de `data/prices.db`.
-- [ ] `README.md` y `AGENTS.md` documentan `engines`/`.nvmrc` y el script `verify`.
+- [x] `npm run verify` termina sin errores (typecheck de `server` y de `web`).
+- [x] `npm run build` termina sin errores y genera `web/dist/index.html`.
+- [x] `npm audit` informa de 0 vulnerabilidades.
+- [x] El `package.json` de la raíz declara `"engines": { "node": ">=24" }` y existe `.nvmrc` con `24`.
+- [x] `npm ls typescript` muestra `typescript@6.x` en `server` y en `web`, y `@types/node` sigue en `24.x`.
+- [x] `npm outdated` ya no muestra `vite`, `zod`, `@fastify/cors`, `p-limit`, `concurrently` ni `@vitejs/plugin-react` por debajo de la versión fijada en este spec.
+- [x] `npm run dev` arranca la API en 3001 y Vite en 5173, y `GET http://localhost:5173/api/products` devuelve 200 con JSON.
+- [x] `npm run build && npm start` sirve la app en 3001 y la ruta `/products/1` devuelve `index.html`.
+- [x] `POST /api/products` con `{"name":""}` devuelve 400 con `{"error": string}`.
+- [x] `POST /api/products` con un `image_url` que no es una URL válida devuelve 400.
+- [x] `POST /api/products` con `{"name":"Prueba"}` devuelve 201 y el producto aparece en `GET /api/products`.
+- [x] `GET /api/products/999999` devuelve 404 con `{"error": string}`.
+- [x] `POST /api/products/:id/pages` con una URL que no es `http(s)` devuelve 400 con el mensaje «Debe ser http(s)».
+- [x] `PUT /api/pages/:id` con un `css_selector` demasiado largo devuelve 400.
+- [x] `DELETE /api/products/:id` devuelve 204 y el producto desaparece del listado.
+- [x] Ningún endpoint cambia de forma: mismos códigos de estado y mismo campo `error` en las respuestas de fallo.
+- [x] No hay cambios en el esquema de `data/prices.db`.
+- [x] `README.md` y `AGENTS.md` documentan `engines`/`.nvmrc` y el script `verify`.
 
 ## Decisions
 

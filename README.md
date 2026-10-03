@@ -3,13 +3,19 @@
 App local para comparar el precio de un producto en varias tiendas.
 
 ## Requisitos
-- Node 24+ (usa `node:sqlite`)
+- Node 24+ (usa `node:sqlite`). La versión mínima está declarada en `engines` del `package.json` raíz y fijada en `.nvmrc` (si usas nvm, `nvm use` la instala).
 
 ## Instalación
 ```
 npm install
 npx playwright install chromium
 ```
+
+## Verificación
+```
+npm run verify
+```
+Ejecuta el typecheck de `server` y de `web` en un solo paso.
 
 ## Uso
 - Desarrollo: `npm run dev` y abrir http://localhost:5173 (la API corre en el puerto 3001).

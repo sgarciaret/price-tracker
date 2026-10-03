@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { serializerCompiler, validatorCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
 import pLimit from 'p-limit';
 import { z } from 'zod';
 import { db, type CheckRow, type PageRow, type ProductRow } from './db.js';
@@ -9,10 +10,10 @@ const limit = pLimit(3);
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const productBody = z.object({
   name: z.string().trim().min(1).max(200),
-  image_url: z.string().trim().url().nullish().or(z.literal('').transform(() => null)),
+  image_url: z.url().trim().nullish().or(z.literal('').transform(() => null)),
 });
 const pageBody = z.object({
-  url: z.string().trim().url().refine((u) => /^https?:/i.test(u), 'Debe ser http(s)'),
+  url: z.url().trim().refine((u) => /^https?:/i.test(u), 'Debe ser http(s)'),
   css_selector: z.string().trim().max(500).nullish().transform((v) => v || null),
 });
 const pageUpdate = z.object({
@@ -60,7 +61,11 @@ export async function routes(app: FastifyInstance) {
     return reply.code(e.statusCode ?? 500).send({ error: e.message ?? 'Error interno' });
   });
 
-  app.get('/api/products', async () => {
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
+  const api = app.withTypeProvider<ZodTypeProvider>();
+
+  api.get('/api/products', async () => {
     const products = db.prepare('SELECT * FROM products ORDER BY created_at DESC, id DESC').all() as unknown as ProductRow[];
     return products.map((p) => {
       const pages = (pagesOf.all(p.id) as unknown as PageRow[]).map(pageWithLast);
@@ -80,64 +85,64 @@ export async function routes(app: FastifyInstance) {
     });
   });
 
-  app.post('/api/products', async (req, reply) => {
-    const body = productBody.parse(req.body);
+  api.post('/api/products', { schema: { body: productBody } }, async (req, reply) => {
+    const body = req.body;
     const row = db.prepare('INSERT INTO products (name, image_url) VALUES (?, ?) RETURNING *').get(body.name, body.image_url ?? null);
     return reply.code(201).send(row);
   });
 
-  app.get('/api/products/:id', async (req, reply) => {
-    const { id } = idParam.parse(req.params);
+  api.get('/api/products/:id', { schema: { params: idParam } }, async (req, reply) => {
+    const { id } = req.params;
     const detail = productDetail(id);
     return detail ?? reply.code(404).send({ error: 'Producto no encontrado' });
   });
 
-  app.put('/api/products/:id', async (req, reply) => {
-    const { id } = idParam.parse(req.params);
-    const body = productBody.parse(req.body);
+  api.put('/api/products/:id', { schema: { params: idParam, body: productBody } }, async (req, reply) => {
+    const { id } = req.params;
+    const body = req.body;
     const row = db.prepare('UPDATE products SET name = ?, image_url = ? WHERE id = ? RETURNING *').get(body.name, body.image_url ?? null, id);
     return row ?? reply.code(404).send({ error: 'Producto no encontrado' });
   });
 
-  app.delete('/api/products/:id', async (req, reply) => {
-    const { id } = idParam.parse(req.params);
+  api.delete('/api/products/:id', { schema: { params: idParam } }, async (req, reply) => {
+    const { id } = req.params;
     db.prepare('DELETE FROM products WHERE id = ?').run(id);
     return reply.code(204).send();
   });
 
-  app.post('/api/products/:id/pages', async (req, reply) => {
-    const { id } = idParam.parse(req.params);
+  api.post('/api/products/:id/pages', { schema: { params: idParam, body: pageBody } }, async (req, reply) => {
+    const { id } = req.params;
     if (!getProduct.get(id)) return reply.code(404).send({ error: 'Producto no encontrado' });
-    const body = pageBody.parse(req.body);
+    const body = req.body;
     const row = db
       .prepare('INSERT INTO pages (product_id, url, store, css_selector) VALUES (?, ?, ?, ?) RETURNING *')
       .get(id, body.url, storeOf(body.url), body.css_selector) as unknown as PageRow;
     return reply.code(201).send(pageWithLast(row));
   });
 
-  app.put('/api/pages/:id', async (req, reply) => {
-    const { id } = idParam.parse(req.params);
-    const body = pageUpdate.parse(req.body);
+  api.put('/api/pages/:id', { schema: { params: idParam, body: pageUpdate } }, async (req, reply) => {
+    const { id } = req.params;
+    const body = req.body;
     const row = db.prepare('UPDATE pages SET css_selector = ? WHERE id = ? RETURNING *').get(body.css_selector, id) as PageRow | undefined;
     return row ? pageWithLast(row) : reply.code(404).send({ error: 'Página no encontrada' });
   });
 
-  app.delete('/api/pages/:id', async (req, reply) => {
-    const { id } = idParam.parse(req.params);
+  api.delete('/api/pages/:id', { schema: { params: idParam } }, async (req, reply) => {
+    const { id } = req.params;
     db.prepare('DELETE FROM pages WHERE id = ?').run(id);
     return reply.code(204).send();
   });
 
-  app.post('/api/pages/:id/check', async (req, reply) => {
-    const { id } = idParam.parse(req.params);
+  api.post('/api/pages/:id/check', { schema: { params: idParam } }, async (req, reply) => {
+    const { id } = req.params;
     const page = getPage.get(id) as PageRow | undefined;
     if (!page) return reply.code(404).send({ error: 'Página no encontrada' });
     await runCheck(page);
     return pageWithLast(page);
   });
 
-  app.post('/api/products/:id/check', async (req, reply) => {
-    const { id } = idParam.parse(req.params);
+  api.post('/api/products/:id/check', { schema: { params: idParam } }, async (req, reply) => {
+    const { id } = req.params;
     if (!getProduct.get(id)) return reply.code(404).send({ error: 'Producto no encontrado' });
     const pages = pagesOf.all(id) as unknown as PageRow[];
     await Promise.all(pages.map(runCheck));
