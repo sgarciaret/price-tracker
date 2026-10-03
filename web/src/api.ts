@@ -10,7 +10,8 @@ export interface Page {
 }
 export interface ProductSummary {
   id: number; name: string; image_url: string | null; created_at: string;
-  page_count: number; best: { price: number; currency: string; store: string } | null;
+  page_count: number; last_check_at: string | null;
+  best: { price: number; currency: string; store: string } | null;
 }
 export interface ProductDetail {
   id: number; name: string; image_url: string | null; created_at: string; pages: Page[];

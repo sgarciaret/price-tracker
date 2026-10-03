@@ -1,6 +1,6 @@
 # SPEC 02 — Ordenación de la lista de productos en la página principal
 
-> **Status:** Aprobado
+> **Status:** Implementado
 > **Depends on:** —
 > **Date:** 2026-10-03
 > **Objective:** Permitir ordenar la lista de la página principal por nombre, por fecha de creación o por fecha del último registro de precio, con la creación descendente como orden por defecto.
@@ -90,26 +90,26 @@ Convenciones:
 
 ## Acceptance criteria
 
-- [ ] `npm run typecheck -w server` termina sin errores.
-- [ ] `npm run typecheck -w web` termina sin errores.
-- [ ] `npm run build` termina sin errores.
-- [ ] `GET /api/products` incluye `last_check_at` en cada producto, con fecha o `null`.
-- [ ] Al cargar la página, la lista sale por fecha de creación descendente (los más nuevos primero), igual que hoy.
-- [ ] El `<select>` «Ordenar por» está en su propia fila entre el formulario y la cuadrícula, alineado a la derecha.
-- [ ] El select contiene exactamente 5 opciones: `Nombre (A → Z)`, `Nombre (Z → A)`, `Más recientes primero`, `Más antiguos primero`, `Último registro más reciente`.
-- [ ] El valor seleccionado por defecto al abrir la app sin nada guardado es `created_desc`.
-- [ ] `Nombre (A → Z)` ignora mayúsculas y acentos («Sony», «samsung» y «Ácido» se ordenan de forma natural) y respeta la ñ.
-- [ ] `Nombre (Z → A)` es la inversión exacta del orden A → Z.
-- [ ] `Más antiguos primero` es la inversión exacta de `Más recientes primero`.
-- [ ] `Último registro más reciente` pone primero el producto cuyo `last_check_at` es más reciente.
-- [ ] Los productos sin registros quedan al final en `Último registro más reciente`, ordenados entre sí por fecha de creación descendente.
-- [ ] Cambiar el select reordena la lista sin recargar la página y sin nuevas peticiones a la API.
-- [ ] Tras crear un producto nuevo, aparece en la posición que corresponda al orden activo.
-- [ ] Elegir un orden, entrar en un producto y volver con «← Volver» mantiene el orden elegido.
-- [ ] Recargar la pestaña mantiene el orden elegido; cerrar el navegador y volver a abrirlo restablece el orden por defecto.
-- [ ] Ningún componente muta el array de productos recibido de la API (la ordenación trabaja sobre una copia).
-- [ ] No se ha añadido ninguna dependencia de npm.
-- [ ] No hay cambios en el esquema de `data/prices.db`.
+- [x] `npm run typecheck -w server` termina sin errores.
+- [x] `npm run typecheck -w web` termina sin errores.
+- [x] `npm run build` termina sin errores.
+- [x] `GET /api/products` incluye `last_check_at` en cada producto, con fecha o `null`.
+- [x] Al cargar la página, la lista sale por fecha de creación descendente (los más nuevos primero), igual que hoy.
+- [x] El `<select>` «Ordenar por» está en su propia fila entre el formulario y la cuadrícula, alineado a la derecha.
+- [x] El select contiene exactamente 5 opciones: `Nombre (A → Z)`, `Nombre (Z → A)`, `Más recientes primero`, `Más antiguos primero`, `Último registro más reciente`.
+- [x] El valor seleccionado por defecto al abrir la app sin nada guardado es `created_desc`.
+- [x] `Nombre (A → Z)` ignora mayúsculas y acentos («Sony», «samsung» y «Ácido» se ordenan de forma natural) y respeta la ñ.
+- [x] `Nombre (Z → A)` es la inversión exacta del orden A → Z.
+- [x] `Más antiguos primero` es la inversión exacta de `Más recientes primero`.
+- [x] `Último registro más reciente` pone primero el producto cuyo `last_check_at` es más reciente.
+- [x] Los productos sin registros quedan al final en `Último registro más reciente`, ordenados entre sí por fecha de creación descendente.
+- [x] Cambiar el select reordena la lista sin recargar la página y sin nuevas peticiones a la API.
+- [x] Tras crear un producto nuevo, aparece en la posición que corresponda al orden activo.
+- [x] Elegir un orden, entrar en un producto y volver con «← Volver» mantiene el orden elegido.
+- [x] Recargar la pestaña mantiene el orden elegido; cerrar el navegador y volver a abrirlo restablece el orden por defecto.
+- [x] Ningún componente muta el array de productos recibido de la API (la ordenación trabaja sobre una copia).
+- [x] No se ha añadido ninguna dependencia de npm.
+- [x] No hay cambios en el esquema de `data/prices.db`.
 
 ## Decisions
 

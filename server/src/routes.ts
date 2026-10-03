@@ -66,9 +66,15 @@ export async function routes(app: FastifyInstance) {
       const pages = (pagesOf.all(p.id) as unknown as PageRow[]).map(pageWithLast);
       const ok = pages.filter((x) => x.last_check?.status === 'ok' && x.last_check.price != null);
       const best = ok.sort((a, b) => a.last_check!.price! - b.last_check!.price!)[0];
+      let last_check_at: string | null = null;
+      for (const x of pages) {
+        const checkedAt = x.last_check?.checked_at ?? null;
+        if (checkedAt !== null && (last_check_at === null || checkedAt > last_check_at)) last_check_at = checkedAt;
+      }
       return {
         ...p,
         page_count: pages.length,
+        last_check_at,
         best: best ? { price: best.last_check!.price, currency: best.last_check!.currency, store: best.store } : null,
       };
     });

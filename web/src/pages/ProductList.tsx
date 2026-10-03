@@ -6,11 +6,33 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Input } from '../components/ui/Input';
+import { DEFAULT_SORT, isValidSortKey, sortProducts, SORT_OPTIONS, type SortKey } from '../productSort';
+
+const SORT_STORAGE_KEY = 'productList:sort';
+
+function readStoredSort(): SortKey {
+  try {
+    const stored = sessionStorage.getItem(SORT_STORAGE_KEY);
+    return isValidSortKey(stored) ? stored : DEFAULT_SORT;
+  } catch {
+    return DEFAULT_SORT;
+  }
+}
 
 export function ProductList() {
   const [products, setProducts] = useState<ProductSummary[] | null>(null);
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortKey>(readStoredSort);
+
+  const changeSort = (key: SortKey) => {
+    setSort(key);
+    try {
+      sessionStorage.setItem(SORT_STORAGE_KEY, key);
+    } catch {
+      setSort(DEFAULT_SORT);
+    }
+  };
 
   const load = () => api.listProducts().then(setProducts).catch((e) => setError(e.message));
   useEffect(() => { load(); }, []);
@@ -41,6 +63,24 @@ export function ProductList() {
         <Button type="submit" variant="primary">Añadir producto</Button>
       </form>
 
+      <div className="flex items-center justify-end gap-2">
+        <label htmlFor="product-sort" className="text-xs font-medium text-slate-600">
+          Ordenar por
+        </label>
+        <select
+          id="product-sort"
+          value={sort}
+          onChange={(e) => changeSort(e.target.value as SortKey)}
+          className="rounded-control border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:outline-none"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {error && <Alert>{error}</Alert>}
 
       {products === null ? (
@@ -49,7 +89,7 @@ export function ProductList() {
         <EmptyState>Todavía no hay productos. Añade uno para empezar.</EmptyState>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">
-          {products.map((p) => (
+          {sortProducts(products, sort).map((p) => (
             <li key={p.id}>
               <Card className="transition-shadow hover:shadow-pop">
                 <Link to={`/products/${p.id}`} className="flex gap-3 p-3">
