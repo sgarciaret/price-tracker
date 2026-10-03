@@ -1,6 +1,6 @@
 # SPEC 01 — Rediseño visual de la interfaz con componentes de UI compartidos
 
-> **Status:** Aprobado
+> **Status:** Implemented
 > **Depends on:** —
 > **Date:** 2026-10-03
 > **Objective:** Diferenciar visualmente las secciones y elementos de la aplicación y dar apariencia de botón real a todas las acciones, creando una capa de componentes de UI compartidos en `web/src/components/ui/`.
@@ -72,25 +72,25 @@ type ButtonVariant = 'primary' | 'secondary' | 'danger';
 
 ## Acceptance criteria
 
-- [ ] `npm run typecheck -w web` termina sin errores.
-- [ ] `npm run build` termina sin errores.
-- [ ] El fondo de la página no es blanco puro y las tarjetas blancas se separan de él visualmente.
-- [ ] `Añadir producto`, `Añadir página` y `Comprobar todas` se renderizan con la variante `primary` (fondo azul, texto blanco).
-- [ ] `Renombrar`, `Comprobar` y `Selector` se renderizan con la variante `secondary` (fondo claro, borde visible).
-- [ ] `Eliminar` y `Quitar` se renderizan con la variante `danger` (fondo rojo claro, texto rojo).
-- [ ] Ninguna acción de la interfaz se muestra como texto plano con `hover:underline`.
-- [ ] Cada botón muestra un anillo visible al enfocarlo con Tab.
-- [ ] Los botones deshabilitados (`Comprobar todas` con 0 páginas, `Comprobar` mientras se comprueba) se ven deshabilitados.
-- [ ] La cabecera tiene un fondo distinto del área de contenido y se separa de ella con sombra o borde.
-- [ ] La página de detalle muestra un enlace "← Volver" que lleva a `/`.
-- [ ] La tabla de páginas tiene un título visible por encima.
-- [ ] Los estados `ok`, `not_found`, `blocked` y `error` de la columna Estado se muestran como `Badge` con colores diferenciados.
-- [ ] Los mensajes de error se muestran dentro de una caja de alerta con fondo y borde, no como párrafo rojo suelto.
-- [ ] Los estados vacíos ("Todavía no hay productos", "Añade páginas de tiendas") se muestran dentro de un recuadro con borde punteado.
-- [ ] `prompt()` de Renombrar y Selector sigue abriéndose; `confirm()` de Eliminar y Quitar sigue abriéndose.
-- [ ] No se ha añadido ninguna dependencia de npm.
-- [ ] No hay cambios en `server/` ni en `data/prices.db`.
-- [ ] La tabla sigue envolviéndose en `overflow-x-auto` en pantallas estrechas.
+- [x] `npm run typecheck -w web` termina sin errores.
+- [x] `npm run build` termina sin errores.
+- [x] El fondo de la página no es blanco puro y las tarjetas blancas se separan de él visualmente.
+- [x] `Añadir producto`, `Añadir página` y `Comprobar todas` se renderizan con la variante `primary` (fondo azul, texto blanco).
+- [x] `Renombrar`, `Comprobar` y `Selector` se renderizan con la variante `secondary` (fondo claro, borde visible).
+- [x] `Eliminar` y `Quitar` se renderizan con la variante `danger` (fondo rojo claro, texto rojo).
+- [x] Ninguna acción de la interfaz se muestra como texto plano con `hover:underline`.
+- [x] Cada botón muestra un anillo visible al enfocarlo con Tab.
+- [x] Los botones deshabilitados (`Comprobar todas` con 0 páginas, `Comprobar` mientras se comprueba) se ven deshabilitados.
+- [x] La cabecera tiene un fondo distinto del área de contenido y se separa de ella con sombra o borde.
+- [x] La página de detalle muestra un enlace "← Volver" que lleva a `/`.
+- [x] La tabla de páginas tiene un título visible por encima.
+- [x] Los estados `ok`, `not_found`, `blocked` y `error` de la columna Estado se muestran como `Badge` con colores diferenciados.
+- [x] Los mensajes de error se muestran dentro de una caja de alerta con fondo y borde, no como párrafo rojo suelto.
+- [x] Los estados vacíos ("Todavía no hay productos", "Añade páginas de tiendas") se muestran dentro de un recuadro con borde punteado.
+- [x] `prompt()` de Renombrar y Selector sigue abriéndose; `confirm()` de Eliminar y Quitar sigue abriéndose.
+- [x] No se ha añadido ninguna dependencia de npm.
+- [x] No hay cambios en `server/` ni en `data/prices.db`.
+- [x] La tabla sigue envolviéndose en `overflow-x-auto` en pantallas estrechas.
 
 ## Decisions
 
@@ -101,6 +101,7 @@ type ButtonVariant = 'primary' | 'secondary' | 'danger';
 - **Sí:** botones compactos con borde en las filas de la tabla, en lugar de iconos o menú desplegable. Legibles sin dependencias y sin lógica de estado nueva.
 - **Sí:** título de sección solo sobre la tabla. Decisión del usuario: el resto de bloques se diferencian por fondo y espaciado.
 - **Sí:** fondo diferenciado en la cabecera más enlace "← Volver" en el detalle.
+- **Sí:** el nombre de la tienda en la tabla sigue siendo un enlace con `hover:underline`. Es navegación a la tienda externa, no una acción; los enlaces deben parecer enlaces (decisión tomada en la revisión del criterio 7).
 - **No:** modo oscuro. Duplicaría los tokens y añadiría un toggle con persistencia; se queda para otro spec.
 - **No:** librería de iconos. El texto de las acciones ya es explícito y se evita una dependencia.
 - **No:** modales propios para Renombrar / Selector / Eliminar. Se estiliza el botón, no se toca el comportamiento. Sustituir `prompt()` y `confirm()` es un spec aparte.

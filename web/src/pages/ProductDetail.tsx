@@ -1,12 +1,18 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, formatDate, formatPrice, type Page, type ProductDetail as Detail, type Status } from '../api';
+import { Alert } from '../components/ui/Alert';
+import { Badge, type BadgeTone } from '../components/ui/Badge';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import { EmptyState } from '../components/ui/EmptyState';
+import { Input } from '../components/ui/Input';
 
-const STATUS: Record<Status, { label: string; cls: string }> = {
-  ok: { label: 'OK', cls: 'bg-green-100 text-green-800' },
-  not_found: { label: 'Precio no detectado', cls: 'bg-amber-100 text-amber-800' },
-  blocked: { label: 'Tienda bloquea el acceso', cls: 'bg-red-100 text-red-800' },
-  error: { label: 'Error', cls: 'bg-slate-200 text-slate-700' },
+const STATUS: Record<Status, { label: string; tone: BadgeTone }> = {
+  ok: { label: 'OK', tone: 'success' },
+  not_found: { label: 'Precio no detectado', tone: 'warning' },
+  blocked: { label: 'Tienda bloquea el acceso', tone: 'danger' },
+  error: { label: 'Error', tone: 'neutral' },
 };
 
 export function ProductDetail() {
@@ -102,102 +108,122 @@ export function ProductDetail() {
 
   return (
     <div className="space-y-6">
+      <div>
+        <Link
+          to="/"
+          className="inline-block rounded-control px-2 py-1 text-sm text-slate-600 hover:bg-slate-200 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:outline-none"
+        >
+          ← Volver
+        </Link>
+      </div>
+
       <div className="flex items-center gap-4">
         {product.image_url && <img src={product.image_url} alt="" className="h-20 w-20 rounded object-contain" />}
         <div className="flex-1">
           <h1 className="text-2xl font-semibold">{product.name}</h1>
-          <div className="space-x-3 text-sm">
-            <button onClick={renameProduct} className="text-blue-600 hover:underline">Renombrar</button>
-            <button onClick={deleteProduct} className="text-red-600 hover:underline">Eliminar</button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onClick={renameProduct}>Renombrar</Button>
+            <Button variant="danger" size="sm" onClick={deleteProduct}>Eliminar</Button>
           </div>
         </div>
-        <button
-          onClick={checkAll}
-          disabled={checkingAll || product.pages.length === 0}
-          className="rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
+        <Button onClick={checkAll} disabled={checkingAll || product.pages.length === 0} loading={checkingAll}>
           {checkingAll ? 'Comprobando…' : 'Comprobar todas'}
-        </button>
+        </Button>
       </div>
 
-      <form onSubmit={addPage} className="flex flex-wrap gap-2 rounded-lg border bg-white p-3">
-        <input
-          value={url} onChange={(e) => setUrl(e.target.value)} required type="url"
-          placeholder="https://tienda.com/producto" className="min-w-64 flex-[2] rounded-md border px-3 py-2"
-        />
-        <input
-          value={selector} onChange={(e) => setSelector(e.target.value)}
-          placeholder="Selector CSS (opcional)" className="min-w-40 flex-1 rounded-md border px-3 py-2 font-mono text-sm"
-        />
-        <button className="rounded-md bg-slate-800 px-4 py-2 font-medium text-white hover:bg-slate-900">Añadir página</button>
-      </form>
+      <Card>
+        <form onSubmit={addPage} className="flex flex-wrap items-end gap-3 p-3">
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            required
+            type="url"
+            placeholder="https://tienda.com/producto"
+            aria-label="URL de la página"
+            className="min-w-64 flex-[2]"
+          />
+          <Input
+            value={selector}
+            onChange={(e) => setSelector(e.target.value)}
+            placeholder="Selector CSS (opcional)"
+            aria-label="Selector CSS"
+            className="min-w-40 flex-1 font-mono"
+          />
+          <Button type="submit" variant="primary">Añadir página</Button>
+        </form>
+      </Card>
 
-      {error && <p className="text-red-600">{error}</p>}
+      {error && <Alert>{error}</Alert>}
 
       {product.pages.length === 0 ? (
-        <p className="text-slate-500">Añade páginas de tiendas para comparar el precio.</p>
+        <EmptyState>Añade páginas de tiendas para comparar el precio.</EmptyState>
       ) : (
-        <div className="overflow-x-auto rounded-lg border bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-100 text-left text-slate-600">
-              <tr>
-                <th className="px-3 py-2">Tienda</th>
-                <th className="px-3 py-2 text-right">Precio</th>
-                <th className="px-3 py-2 text-right">Diferencia</th>
-                <th className="px-3 py-2">Estado</th>
-                <th className="px-3 py-2">Comprobado</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((page) => {
-                const c = page.last_check;
-                const busy = checking.has(page.id) || checkingAll;
-                const isOk = c?.status === 'ok' && c.price != null;
-                const isBest = isOk && min != null && c!.price === min;
-                const diff = isOk && min != null ? c!.price! - min : null;
-                return (
-                  <tr key={page.id} className={`border-t ${isBest ? 'bg-green-50' : ''}`}>
-                    <td className="px-3 py-2">
-                      <a href={page.url} target="_blank" rel="noreferrer" className="font-medium text-blue-700 hover:underline">
-                        {page.store}
-                      </a>
-                      {page.css_selector && <div className="font-mono text-xs text-slate-400">{page.css_selector}</div>}
-                    </td>
-                    <td className="px-3 py-2 text-right font-semibold">
-                      {isOk ? formatPrice(c!.price!, c!.currency ?? 'EUR') : '—'}
-                      {isBest && okPrices.length > 1 && <span className="ml-2 rounded bg-green-600 px-1.5 py-0.5 text-xs text-white">Mejor</span>}
-                    </td>
-                    <td className="px-3 py-2 text-right text-slate-600">
-                      {diff != null && diff > 0
-                        ? `+${formatPrice(diff, c!.currency ?? 'EUR')} (+${((diff / min!) * 100).toFixed(1)}%)`
-                        : ''}
-                    </td>
-                    <td className="px-3 py-2">
-                      {busy ? (
-                        <span className="text-slate-500">Comprobando…</span>
-                      ) : c ? (
-                        <div>
-                          <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS[c.status].cls}`}>{STATUS[c.status].label}</span>
-                          {c.error_msg && <div className="mt-1 max-w-xs text-xs text-slate-500">{c.error_msg}</div>}
-                          {c.method && <div className="mt-1 text-xs text-slate-400">vía {c.method}</div>}
-                        </div>
-                      ) : (
-                        <span className="text-slate-400">Sin comprobar</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-slate-500">{c ? formatDate(c.checked_at) : '—'}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-right space-x-2">
-                      <button onClick={() => checkOne(page.id)} disabled={busy} className="text-blue-600 hover:underline disabled:opacity-40">Comprobar</button>
-                      <button onClick={() => editSelector(page)} className="text-slate-600 hover:underline">Selector</button>
-                      <button onClick={() => removePage(page.id)} className="text-red-600 hover:underline">Quitar</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Card>
+          <h2 className="border-b border-border px-4 py-3 text-base font-semibold text-slate-800">
+            Comparación de precios
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                <tr>
+                  <th className="px-3 py-2">Tienda</th>
+                  <th className="px-3 py-2 text-right">Precio</th>
+                  <th className="px-3 py-2 text-right">Diferencia</th>
+                  <th className="px-3 py-2">Estado</th>
+                  <th className="px-3 py-2">Comprobado</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((page) => {
+                  const c = page.last_check;
+                  const busy = checking.has(page.id) || checkingAll;
+                  const isOk = c?.status === 'ok' && c.price != null;
+                  const isBest = isOk && min != null && c!.price === min;
+                  const diff = isOk && min != null ? c!.price! - min : null;
+                  return (
+                    <tr key={page.id} className={`border-t ${isBest ? 'bg-green-50' : ''}`}>
+                      <td className="px-3 py-2">
+                        <a href={page.url} target="_blank" rel="noreferrer" className="font-medium text-blue-700 hover:underline">
+                          {page.store}
+                        </a>
+                        {page.css_selector && <div className="font-mono text-xs text-slate-400">{page.css_selector}</div>}
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold">
+                        {isOk ? formatPrice(c!.price!, c!.currency ?? 'EUR') : '—'}
+                        {isBest && okPrices.length > 1 && <span className="ml-2 rounded bg-green-600 px-1.5 py-0.5 text-xs text-white">Mejor</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-600">
+                        {diff != null && diff > 0
+                          ? `+${formatPrice(diff, c!.currency ?? 'EUR')} (+${((diff / min!) * 100).toFixed(1)}%)`
+                          : ''}
+                      </td>
+                      <td className="px-3 py-2">
+                        {busy ? (
+                          <span className="text-slate-500">Comprobando…</span>
+                        ) : c ? (
+                          <div>
+                            <Badge tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Badge>
+                            {c.error_msg && <div className="mt-1 max-w-xs text-xs text-slate-500">{c.error_msg}</div>}
+                            {c.method && <div className="mt-1 text-xs text-slate-400">vía {c.method}</div>}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">Sin comprobar</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-500">{c ? formatDate(c.checked_at) : '—'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-right space-x-2">
+                        <Button variant="secondary" size="sm" onClick={() => checkOne(page.id)} disabled={busy}>Comprobar</Button>
+                        <Button variant="secondary" size="sm" onClick={() => editSelector(page)}>Selector</Button>
+                        <Button variant="danger" size="sm" onClick={() => removePage(page.id)}>Quitar</Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
     </div>
   );
