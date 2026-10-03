@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api, formatPrice, type ProductSummary } from '../api';
 import { Alert } from '../components/ui/Alert';
@@ -34,8 +34,8 @@ export function ProductList() {
     }
   };
 
-  const load = () => api.listProducts().then(setProducts).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => api.listProducts().then(setProducts).catch((e) => setError(e.message)), []);
+  useEffect(() => { load(); }, [load]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();

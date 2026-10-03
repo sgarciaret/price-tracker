@@ -1,6 +1,6 @@
 # SPEC 04 — Lint, pruebas automáticas y CI
 
-> **Status:** Aprobado
+> **Status:** Implementado
 > **Depends on:** SPEC 03
 > **Date:** 2026-10-03
 > **Objective:** Añadir ESLint con Prettier, pruebas automáticas con Vitest para el scraper y la API, y un workflow de GitHub Actions que ejecute typecheck, lint, pruebas y build.

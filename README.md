@@ -15,7 +15,25 @@ npx playwright install chromium
 ```
 npm run verify
 ```
-Ejecuta el typecheck de `server` y de `web` en un solo paso.
+Ejecuta en un solo paso los cuatro comandos de comprobación: typecheck de `server`, typecheck de `web`, lint y pruebas.
+
+Comandos sueltos:
+```
+npm run lint      # ESLint (flat config en eslint.config.mjs), 0 avisos permitidos
+npm run lint:fix  # lo mismo aplicando los arreglos automáticos
+npm test          # pruebas del backend con Vitest (scraper y API)
+npm run format    # formatea todo con Prettier (reescribe los ficheros existentes)
+```
+
+### Pruebas
+```
+npm test
+```
+- Solo hay pruebas en `server/` (`server/test/**`): unidades del scraper (`normalize`, `classify`, `extract` con fixtures HTML) y API con `app.inject()`.
+- Nunca abren `data/prices.db`: `server/vitest.config.ts` apunta `DB_PATH` a un fichero temporal. Tampoco hacen red ni lanzan Chromium (los endpoints `/check` quedan fuera).
+
+### Integración continua
+`.github/workflows/ci.yml` ejecuta `npm ci`, `npm run verify` y `npm run build` con la versión de Node de `.nvmrc`, con `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` (ninguna prueba necesita Chromium). Hoy no hay remoto configurado: basta con `git remote add` para que el workflow funcione en GitHub Actions.
 
 ## Uso
 - Desarrollo: `npm run dev` y abrir http://localhost:5173 (la API corre en el puerto 3001).

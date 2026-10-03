@@ -6,6 +6,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "try": "tsx src/scraper/try.ts"
   },
   "dependencies": {
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "tsx": "^4.19.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.3"
   }
 }

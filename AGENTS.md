@@ -17,11 +17,16 @@ Local price comparison web app using an npm workspaces monorepo: Fastify API bac
 - `npm run dev -w web`: Runs frontend only with Vite.
 
 ### Verification & Build
-- `npm run verify`: Runs both typechecks (`typecheck -w server` and `typecheck -w web`) in one step.
+- `npm run verify`: Runs the whole gate in one step: `typecheck -w server`, `typecheck -w web`, `lint` and `test`.
 - `npm run typecheck -w server`: Typecheck backend (`tsc --noEmit`).
 - `npm run typecheck -w web`: Typecheck frontend (`tsc --noEmit`).
+- `npm run lint`: ESLint over the whole repo (`eslint . --max-warnings=0`) with the flat config in `eslint.config.mjs`.
+- `npm run lint:fix`: Same as `lint` but with `--fix`.
+- `npm test`: Runs the backend suite (`vitest run` in `server/`, tests in `server/test/**`).
+- `npm run format`: Formats everything with Prettier (`.prettierrc`) — it rewrites existing files, so it is not part of `verify`.
 - `npm run build`: Builds frontend (`web/dist`) via `tsc --noEmit && vite build`.
-- *Note:* No automated test runner (Jest/Vitest) is configured; use typecheck and the scraper CLI for verification.
+- *Note:* Before SPEC 04 there was no test runner at all (Jest/Vitest); typecheck plus the scraper CLI were the only verification. Vitest now covers `server/` only — React component tests and e2e tests are still out of scope.
+- *Testing quirks:* tests never open `data/prices.db` (`server/vitest.config.ts` sets `DB_PATH` to a temp file) and never hit the network or launch Chromium; the `/check` endpoints are excluded from the API tests.
 
 ### Production / Local Serving
 - `npm run build && npm start`: Fastify serves compiled `web/dist` assets on `:3001` with SPA client routing fallback.

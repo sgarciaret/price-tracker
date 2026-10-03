@@ -11,14 +11,20 @@ export interface Extracted {
 
 export interface PageMeta { title?: string; image?: string }
 
-type Json = any;
+type Json = string | number | boolean | null | Json[] | JsonObject;
+type JsonObject = { [k: string]: Json | undefined };
+
+function isJsonObject(v: Json | undefined): v is JsonObject {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
 
 function asArray<T>(v: T | T[] | undefined | null): T[] {
   return v == null ? [] : Array.isArray(v) ? v : [v];
 }
 
 function hasType(node: Json, type: string): boolean {
-  return asArray(node?.['@type']).some((t: unknown) => typeof t === 'string' && t.toLowerCase() === type.toLowerCase());
+  const raw = isJsonObject(node) ? node['@type'] : undefined;
+  return asArray(raw).some((t) => typeof t === 'string' && t.toLowerCase() === type.toLowerCase());
 }
 
 function walk(node: Json, out: Json[]) {
@@ -29,12 +35,18 @@ function walk(node: Json, out: Json[]) {
 }
 
 function priceFromOffer(offer: Json): { price: number; currency?: string } | null {
-  if (!offer || typeof offer !== 'object') return null;
-  const candidates = [offer.price, offer.lowPrice, offer.priceSpecification?.price,
-    ...asArray(offer.priceSpecification).map((p: Json) => p?.price)];
+  if (!isJsonObject(offer)) return null;
+  const spec = isJsonObject(offer.priceSpecification) ? offer.priceSpecification : undefined;
+  const currency = offer.priceCurrency ?? spec?.priceCurrency;
+  const candidates: (Json | undefined)[] = [
+    offer.price,
+    offer.lowPrice,
+    spec?.price,
+    ...asArray(offer.priceSpecification).map((p) => (isJsonObject(p) ? p.price : undefined)),
+  ];
   for (const c of candidates) {
     const p = parsePrice(c);
-    if (p != null) return { price: p, currency: offer.priceCurrency ?? offer.priceSpecification?.priceCurrency };
+    if (p != null) return { price: p, currency: typeof currency === 'string' ? currency : undefined };
   }
   return null;
 }
@@ -48,14 +60,17 @@ function fromJsonLd($: cheerio.CheerioAPI): (Extracted & { method: string }) | n
   });
   const products = nodes.filter((n) => hasType(n, 'Product') || hasType(n, 'ProductGroup'));
   for (const prod of products) {
+    if (!isJsonObject(prod)) continue;
     for (const offer of asArray(prod.offers)) {
-      const found = priceFromOffer(offer) ?? asArray(offer?.offers).map(priceFromOffer).find(Boolean);
+      const found = priceFromOffer(offer) ?? asArray(isJsonObject(offer) ? offer.offers : undefined)
+        .map(priceFromOffer).find(Boolean);
       if (found) {
         const image = asArray(prod.image)[0];
+        const imageUrl = isJsonObject(image) ? image.url : image;
         return {
           price: found.price, currency: found.currency ?? 'EUR', method: 'json-ld',
           title: typeof prod.name === 'string' ? prod.name : undefined,
-          image: typeof image === 'string' ? image : image?.url,
+          image: typeof imageUrl === 'string' ? imageUrl : undefined,
         };
       }
     }

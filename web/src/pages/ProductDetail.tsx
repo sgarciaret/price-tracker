@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, formatDate, formatPrice, type Page, type ProductDetail as Detail, type Status } from '../api';
 import { Alert } from '../components/ui/Alert';
@@ -25,8 +25,8 @@ export function ProductDetail() {
   const [url, setUrl] = useState('');
   const [selector, setSelector] = useState('');
 
-  const load = () => api.getProduct(id).then(setProduct).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, [id]);
+  const load = useCallback(() => api.getProduct(id).then(setProduct).catch((e) => setError(e.message)), [id]);
+  useEffect(() => { load(); }, [load]);
 
   const replacePage = (page: Page) =>
     setProduct((p) => (p ? { ...p, pages: p.pages.map((x) => (x.id === page.id ? page : x)) } : p));
