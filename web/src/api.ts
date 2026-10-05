@@ -17,12 +17,27 @@ export interface ProductDetail {
   id: number; name: string; image_url: string | null; created_at: string; pages: Page[];
 }
 
-async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
+let onUnauthorized: (() => void) | null = null;
+
+/**
+ * El AuthProvider registra aquí el manejador de `401` (en lugar de importar `auth.tsx`,
+ * que crearía un ciclo). `req()` lo invoca antes de lanzar `Error('Sesión caducada')`.
+ */
+export function setOnUnauthorized(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
+async function req<T>(method: string, url: string, body?: unknown, opts: { allowUnauthorized?: boolean } = {}): Promise<T> {
   const res = await fetch(url, {
     method,
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 401 && !opts.allowUnauthorized) {
+    // Sesión caducada (o ausente): se avisa al AuthProvider y se corta la petición.
+    onUnauthorized?.();
+    throw new Error('Sesión caducada');
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? `Error ${res.status}`);
@@ -31,6 +46,12 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
 }
 
 export const api = {
+  // Un 401 aquí significa credenciales incorrectas, no sesión caducada:
+  // no se dispara el manejador y el error lo pinta la pantalla de login.
+  login: (username: string, password: string) =>
+    req<{ authenticated: boolean }>('POST', '/api/auth/login', { username, password }, { allowUnauthorized: true }),
+  logout: () => req<void>('POST', '/api/auth/logout'),
+  session: () => req<{ authenticated: boolean }>('GET', '/api/auth/session'),
   listProducts: () => req<ProductSummary[]>('GET', '/api/products'),
   getProduct: (id: number) => req<ProductDetail>('GET', `/api/products/${id}`),
   createProduct: (name: string, image_url?: string) => req<ProductSummary>('POST', '/api/products', { name, image_url }),

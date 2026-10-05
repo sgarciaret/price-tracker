@@ -2,10 +2,31 @@ import type { FastifyInstance } from 'fastify';
 import { serializerCompiler, validatorCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
 import pLimit from 'p-limit';
 import { z } from 'zod';
+import {
+  createSession,
+  destroySession,
+  getCredentials,
+  isValidSession,
+  parseCookies,
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+  verifyCredentials,
+} from './auth.js';
 import { db, type CheckRow, type PageRow, type ProductRow } from './db.js';
 import { checkUrl } from './scraper/index.js';
 
 const limit = pLimit(3);
+
+/** Únicas rutas `/api` accesibles sin cookie de sesión. */
+const PUBLIC_AUTH_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/session']);
+
+const loginBody = z
+  .object({ username: z.string().catch(''), password: z.string().catch('') })
+  .catch({ username: '', password: '' });
+
+const sessionCookie = (token: string) =>
+  `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_TTL_MS / 1000}`;
+const clearedCookie = `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`;
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const productBody = z.object({
@@ -52,6 +73,18 @@ async function runCheck(page: PageRow) {
 }
 
 export async function routes(app: FastifyInstance) {
+  // Protege todos los endpoints /api con una cookie de sesión válida.
+  // Se registra antes que ninguna ruta: Fastify solo aplica los hooks del contexto
+  // a las rutas registradas después de ellos.
+  app.addHook('onRequest', async (req, reply) => {
+    if (!req.url.startsWith('/api/')) return;
+    const path = req.url.split('?')[0];
+    if (PUBLIC_AUTH_ROUTES.has(path)) return;
+    const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+    if (isValidSession(token)) return;
+    return reply.code(401).send({ error: 'No autenticado' });
+  });
+
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof z.ZodError) {
       return reply.code(400).send({ error: err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') });
@@ -64,6 +97,27 @@ export async function routes(app: FastifyInstance) {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   const api = app.withTypeProvider<ZodTypeProvider>();
+
+  api.post('/api/auth/login', { schema: { body: loginBody } }, async (req, reply) => {
+    const { username, password } = req.body;
+    if (!verifyCredentials(username, password)) {
+      if (getCredentials()) app.log.warn({ username }, 'Login rechazado: credenciales incorrectas');
+      else app.log.warn('Login rechazado: faltan ADMIN_USERNAME y/o ADMIN_PASSWORD en el entorno (.env)');
+      return reply.code(401).send({ error: 'Usuario o contraseña incorrectos' });
+    }
+    return reply.code(200).header('set-cookie', sessionCookie(createSession())).send({ authenticated: true });
+  });
+
+  api.post('/api/auth/logout', async (req, reply) => {
+    const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+    if (token) destroySession(token);
+    return reply.code(204).header('set-cookie', clearedCookie).send();
+  });
+
+  // No exige sesión: el frontend comprueba el estado sin disparar el manejador de 401.
+  api.get('/api/auth/session', async (req) => ({
+    authenticated: isValidSession(parseCookies(req.headers.cookie)[SESSION_COOKIE]),
+  }));
 
   api.get('/api/products', async () => {
     const products = db.prepare('SELECT * FROM products ORDER BY created_at DESC, id DESC').all() as unknown as ProductRow[];

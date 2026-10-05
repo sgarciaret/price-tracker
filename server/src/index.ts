@@ -1,5 +1,8 @@
 import { buildApp } from './app.js';
+import { loadDotenv } from './env.js';
 import { closeBrowser } from './scraper/fetcher.js';
+
+loadDotenv();
 
 const PORT = Number(process.env.PORT ?? 3001);
 const app = await buildApp();

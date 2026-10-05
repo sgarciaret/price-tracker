@@ -25,6 +25,7 @@
 | **Playwright** (Chromium headless) | Fallback cuando la página necesita JavaScript o bloquea el `fetch` simple |
 | **Zod** | Validación de bodies y params de la API (devuelve errores 400 legibles) |
 | **p-limit** | Limita la concurrencia de scraping a **3 peticiones simultáneas** |
+| `server/src/env.ts` / `auth.ts` | `.env` nativo (`process.loadEnvFile`, sin `dotenv`) y autenticación: credenciales `ADMIN_*`, sesiones en memoria y cookie httpOnly `pt_session` |
 
 ### Frontend (`web/`)
 | Tecnología | Uso |
@@ -44,8 +45,10 @@ price-tracker/
 ├── package.json          # workspaces: server, web; scripts dev/build/start
 ├── data/prices.db        # SQLite (se crea automáticamente)
 ├── server/src/
-│   ├── index.ts          # arranque Fastify, CORS, estáticos, shutdown
-│   ├── routes.ts         # API REST completa
+│   ├── index.ts          # arranque Fastify, carga del .env, CORS, estáticos, shutdown
+│   ├── env.ts            # lectura de <raíz>/.env con process.loadEnvFile()
+│   ├── auth.ts           # credenciales ADMIN_*, sesiones en memoria, parseo de cookies
+│   ├── routes.ts         # API REST completa + hook de autenticación y /api/auth/*
 │   ├── db.ts             # esquema SQLite + tipos
 │   └── scraper/
 │       ├── index.ts      # orquestación: fetch → fallback Playwright
@@ -55,9 +58,11 @@ price-tracker/
 │       ├── classify.ts   # detección de bloqueos/captcha
 │       └── try.ts        # CLI para probar una URL
 └── web/src/
-    ├── main.tsx          # router + layout
+    ├── main.tsx          # router + layout + guards de sesión
     ├── api.ts            # cliente HTTP + formateadores
+    ├── auth.tsx          # AuthProvider, useAuth y guards RequireAuth/RequireGuest
     └── pages/
+        ├── Login.tsx     # pantalla de acceso del administrador
         ├── ProductList.tsx
         └── ProductDetail.tsx
 ```
@@ -78,10 +83,13 @@ Cada comprobación se **acumula** como fila histórica; las consultas solo leen 
 
 ### 3.2 API REST (`server/src/routes.ts`)
 
-Todas bajo `/api`, validadas con Zod:
+Todas bajo `/api`, validadas con Zod. Requieren la cookie de sesión salvo las tres rutas de `/api/auth/*`:
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
+| POST | `/api/auth/login` | Valida `ADMIN_USERNAME`/`ADMIN_PASSWORD` y crea la sesión (`200` + cookie httpOnly, o `401`) |
+| POST | `/api/auth/logout` | Destruye la sesión y caduca la cookie (`204`) |
+| GET | `/api/auth/session` | Informa de `{ authenticated }` sin exigir cookie |
 | GET | `/api/products` | Lista productos + nº de páginas + **mejor precio** (mínimo de los checks `ok`) |
 | POST | `/api/products` | Crea producto |
 | GET/PUT/DELETE | `/api/products/:id` | Detalle (con páginas y su último check), editar, borrar |
@@ -127,6 +135,7 @@ Devuelve también `title` e `image` (con `og:title`/`og:image` como respaldo) qu
 
 ### 3.4 Frontend
 
+- **`/login` — `Login`**: pantalla única con Admin Username y Admin password (sin registro ni recuperación); usa `Card`, `Input`, `Button` y `Alert`. `AuthProvider` comprueba la sesión al cargar y los guards `RequireAuth`/`RequireGuest` protegen el resto de rutas.
 - **`/` — `ProductList`**: formulario para crear productos y tarjetas con imagen, nº de páginas y el **mejor precio** con su tienda.
 - **`/products/:id` — `ProductDetail`**: tabla con tienda, precio, **diferencia vs. el mínimo** (€ y %), badge "Mejor", estado de la última comprobación, fecha, y acciones por fila: *Comprobar*, *Selector* (prompt para editar el CSS), *Quitar*. Arriba: *Comprobar todas*, *Renombrar*, *Eliminar*, y formulario para añadir URL + selector opcional (al añadir, lanza automáticamente la comprobación de esa página).
 - Estado con `useState`/`useEffect` puro (sin librerías de estado); el estado de "comprobando" se gestiona con un `Set` de ids.
@@ -151,4 +160,4 @@ Requisitos: **Node 24+** (por `node:sqlite`) y Chromium de Playwright (`npx play
 - **Historial de precios** completo: cada check es una fila, por lo que se podría graficar la evolución sin cambiar el esquema.
 - **Concurrencia acotada** (`p-limit(3)`) para no saturar las tiendas ni disparar bloqueos.
 - **Cierre limpio**: `SIGINT`/`SIGTERM` cierran Fastify y el navegador de Playwright.
-- **Ligado a un entorno local**: escucha solo en `127.0.0.1`, CORS restringido a localhost, sin autenticación (no pensada para exponerse en red).
+- **Ligado a un entorno local**: escucha solo en `127.0.0.1` y CORS restringido a localhost. Desde SPEC 05 la API y las rutas de React requieren sesión de administrador (cookie httpOnly, credenciales en `.env`), pensada para uso local sin exponerse en red.
