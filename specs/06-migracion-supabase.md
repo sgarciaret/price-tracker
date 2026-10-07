@@ -1,6 +1,6 @@
 # SPEC 06 — Migración de la base de datos y las credenciales a Supabase
 
-> **Status:** Aprobado
+> **Status:** Implementado
 > **Depends on:** SPEC 04, SPEC 05
 > **Date:** 2026-10-06
 > **Objective:** Migrar las tres tablas de SQLite a Postgres en Supabase y sustituir las credenciales de `.env` por Supabase Auth, dejando la app corriendo igual en local con la sesión por cookie httpOnly.

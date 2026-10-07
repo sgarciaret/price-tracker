@@ -6,7 +6,7 @@ export type AuthStatus = 'checking' | 'authenticated' | 'guest';
 
 export interface AuthContextValue {
   status: AuthStatus;
-  login: (username: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -26,8 +26,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setOnUnauthorized(null);
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    await api.login(username, password);
+  const login = useCallback(async (email: string, password: string) => {
+    await api.login(email, password);
     setStatus('authenticated');
   }, []);
 

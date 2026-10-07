@@ -1,4 +1,4 @@
-import type { Status } from '../db.js';
+import type { Status } from '../repo.js';
 import { isBlockedStatus, looksBlocked } from './classify.js';
 import { extractPrice, type Extracted } from './extract.js';
 import { fetchStatic, fetchWithBrowser, type FetchResult } from './fetcher.js';

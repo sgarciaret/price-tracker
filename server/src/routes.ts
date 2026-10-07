@@ -5,14 +5,13 @@ import { z } from 'zod';
 import {
   createSession,
   destroySession,
-  getCredentials,
   isValidSession,
   parseCookies,
   SESSION_COOKIE,
   SESSION_TTL_MS,
-  verifyCredentials,
+  type AuthPort,
 } from './auth.js';
-import { db, type CheckRow, type PageRow, type ProductRow } from './db.js';
+import type { PageRow, Repo } from './repo.js';
 import { checkUrl } from './scraper/index.js';
 
 const limit = pLimit(3);
@@ -21,8 +20,8 @@ const limit = pLimit(3);
 const PUBLIC_AUTH_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/session']);
 
 const loginBody = z
-  .object({ username: z.string().catch(''), password: z.string().catch('') })
-  .catch({ username: '', password: '' });
+  .object({ email: z.string().trim().catch(''), password: z.string().catch('') })
+  .catch({ email: '', password: '' });
 
 const sessionCookie = (token: string) =>
   `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_TTL_MS / 1000}`;
@@ -43,36 +42,36 @@ const pageUpdate = z.object({
 
 const storeOf = (url: string) => new URL(url).hostname.replace(/^www\./, '');
 
-const getProduct = db.prepare('SELECT * FROM products WHERE id = ?');
-const getPage = db.prepare('SELECT * FROM pages WHERE id = ?');
-const pagesOf = db.prepare('SELECT * FROM pages WHERE product_id = ? ORDER BY id');
-const lastCheck = db.prepare('SELECT * FROM price_checks WHERE page_id = ? ORDER BY checked_at DESC, id DESC LIMIT 1');
-const insertCheck = db.prepare(
-  'INSERT INTO price_checks (page_id, price, currency, status, error_msg, method) VALUES (?, ?, ?, ?, ?, ?) RETURNING *',
-);
-
-function pageWithLast(p: PageRow) {
-  return { ...p, last_check: (lastCheck.get(p.id) as CheckRow | undefined) ?? null };
+export interface RoutesOptions {
+  repo: Repo;
+  auth: AuthPort;
 }
 
-function productDetail(id: number) {
-  const product = getProduct.get(id) as ProductRow | undefined;
-  if (!product) return null;
-  const pages = (pagesOf.all(id) as unknown as PageRow[]).map(pageWithLast);
-  return { ...product, pages };
-}
+export async function routes(app: FastifyInstance, { repo, auth }: RoutesOptions) {
+  const pageWithLast = async (p: PageRow) => ({ ...p, last_check: await repo.lastCheck(p.id) });
+  const pagesWithLast = async (productId: number) => Promise.all((await repo.listPages(productId)).map(pageWithLast));
 
-async function runCheck(page: PageRow) {
-  const r = await limit(() => checkUrl(page.url, page.css_selector));
-  const check = insertCheck.get(page.id, r.price, r.currency, r.status, r.error, r.method) as unknown as CheckRow;
-  // Autocompleta la imagen del producto si no tiene
-  if (r.image && /^https?:/.test(r.image)) {
-    db.prepare('UPDATE products SET image_url = ? WHERE id = ? AND (image_url IS NULL OR image_url = \'\')').run(r.image, page.product_id);
+  async function productDetail(id: number) {
+    const product = await repo.getProduct(id);
+    if (!product) return null;
+    return { ...product, pages: await pagesWithLast(id) };
   }
-  return check;
-}
 
-export async function routes(app: FastifyInstance) {
+  async function runCheck(page: PageRow) {
+    const r = await limit(() => checkUrl(page.url, page.css_selector));
+    const check = await repo.insertCheck({
+      pageId: page.id,
+      price: r.price,
+      currency: r.currency,
+      status: r.status,
+      errorMsg: r.error,
+      method: r.method,
+    });
+    // Autocompleta la imagen del producto si no tiene
+    if (r.image && /^https?:/.test(r.image)) await repo.setImageIfEmpty(page.product_id, r.image);
+    return check;
+  }
+
   // Protege todos los endpoints /api con una cookie de sesión válida.
   // Se registra antes que ninguna ruta: Fastify solo aplica los hooks del contexto
   // a las rutas registradas después de ellos.
@@ -81,7 +80,7 @@ export async function routes(app: FastifyInstance) {
     const path = req.url.split('?')[0];
     if (PUBLIC_AUTH_ROUTES.has(path)) return;
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-    if (isValidSession(token)) return;
+    if (await isValidSession(auth, token)) return;
     return reply.code(401).send({ error: 'No autenticado' });
   });
 
@@ -99,30 +98,36 @@ export async function routes(app: FastifyInstance) {
   const api = app.withTypeProvider<ZodTypeProvider>();
 
   api.post('/api/auth/login', { schema: { body: loginBody } }, async (req, reply) => {
-    const { username, password } = req.body;
-    if (!verifyCredentials(username, password)) {
-      if (getCredentials()) app.log.warn({ username }, 'Login rechazado: credenciales incorrectas');
-      else app.log.warn('Login rechazado: faltan ADMIN_USERNAME y/o ADMIN_PASSWORD en el entorno (.env)');
+    const { email, password } = req.body;
+    const tokens = email && password ? await auth.signIn(email, password) : null;
+    if (!tokens) {
+      app.log.warn({ email }, 'Login rechazado por Supabase Auth');
       return reply.code(401).send({ error: 'Usuario o contraseña incorrectos' });
     }
-    return reply.code(200).header('set-cookie', sessionCookie(createSession())).send({ authenticated: true });
+    return reply.code(200).header('set-cookie', sessionCookie(createSession(tokens))).send({ authenticated: true });
   });
 
   api.post('/api/auth/logout', async (req, reply) => {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-    if (token) destroySession(token);
+    if (token) {
+      try {
+        await destroySession(auth, token);
+      } catch (err) {
+        app.log.warn({ err }, 'No se pudo revocar el token en Supabase');
+      }
+    }
     return reply.code(204).header('set-cookie', clearedCookie).send();
   });
 
   // No exige sesión: el frontend comprueba el estado sin disparar el manejador de 401.
   api.get('/api/auth/session', async (req) => ({
-    authenticated: isValidSession(parseCookies(req.headers.cookie)[SESSION_COOKIE]),
+    authenticated: await isValidSession(auth, parseCookies(req.headers.cookie)[SESSION_COOKIE]),
   }));
 
   api.get('/api/products', async () => {
-    const products = db.prepare('SELECT * FROM products ORDER BY created_at DESC, id DESC').all() as unknown as ProductRow[];
-    return products.map((p) => {
-      const pages = (pagesOf.all(p.id) as unknown as PageRow[]).map(pageWithLast);
+    const products = await repo.listProducts();
+    return Promise.all(products.map(async (p) => {
+      const pages = await pagesWithLast(p.id);
       const ok = pages.filter((x) => x.last_check?.status === 'ok' && x.last_check.price != null);
       const best = ok.sort((a, b) => a.last_check!.price! - b.last_check!.price!)[0];
       let last_check_at: string | null = null;
@@ -136,60 +141,58 @@ export async function routes(app: FastifyInstance) {
         last_check_at,
         best: best ? { price: best.last_check!.price, currency: best.last_check!.currency, store: best.store } : null,
       };
-    });
+    }));
   });
 
   api.post('/api/products', { schema: { body: productBody } }, async (req, reply) => {
     const body = req.body;
-    const row = db.prepare('INSERT INTO products (name, image_url) VALUES (?, ?) RETURNING *').get(body.name, body.image_url ?? null);
+    const row = await repo.createProduct(body.name, body.image_url ?? null);
     return reply.code(201).send(row);
   });
 
   api.get('/api/products/:id', { schema: { params: idParam } }, async (req, reply) => {
     const { id } = req.params;
-    const detail = productDetail(id);
+    const detail = await productDetail(id);
     return detail ?? reply.code(404).send({ error: 'Producto no encontrado' });
   });
 
   api.put('/api/products/:id', { schema: { params: idParam, body: productBody } }, async (req, reply) => {
     const { id } = req.params;
     const body = req.body;
-    const row = db.prepare('UPDATE products SET name = ?, image_url = ? WHERE id = ? RETURNING *').get(body.name, body.image_url ?? null, id);
+    const row = await repo.updateProduct(id, body.name, body.image_url ?? null);
     return row ?? reply.code(404).send({ error: 'Producto no encontrado' });
   });
 
   api.delete('/api/products/:id', { schema: { params: idParam } }, async (req, reply) => {
     const { id } = req.params;
-    db.prepare('DELETE FROM products WHERE id = ?').run(id);
+    await repo.deleteProduct(id);
     return reply.code(204).send();
   });
 
   api.post('/api/products/:id/pages', { schema: { params: idParam, body: pageBody } }, async (req, reply) => {
     const { id } = req.params;
-    if (!getProduct.get(id)) return reply.code(404).send({ error: 'Producto no encontrado' });
+    if (!(await repo.getProduct(id))) return reply.code(404).send({ error: 'Producto no encontrado' });
     const body = req.body;
-    const row = db
-      .prepare('INSERT INTO pages (product_id, url, store, css_selector) VALUES (?, ?, ?, ?) RETURNING *')
-      .get(id, body.url, storeOf(body.url), body.css_selector) as unknown as PageRow;
-    return reply.code(201).send(pageWithLast(row));
+    const row = await repo.createPage(id, body.url, storeOf(body.url), body.css_selector);
+    return reply.code(201).send(await pageWithLast(row));
   });
 
   api.put('/api/pages/:id', { schema: { params: idParam, body: pageUpdate } }, async (req, reply) => {
     const { id } = req.params;
     const body = req.body;
-    const row = db.prepare('UPDATE pages SET css_selector = ? WHERE id = ? RETURNING *').get(body.css_selector, id) as PageRow | undefined;
+    const row = await repo.updatePage(id, body.css_selector);
     return row ? pageWithLast(row) : reply.code(404).send({ error: 'Página no encontrada' });
   });
 
   api.delete('/api/pages/:id', { schema: { params: idParam } }, async (req, reply) => {
     const { id } = req.params;
-    db.prepare('DELETE FROM pages WHERE id = ?').run(id);
+    await repo.deletePage(id);
     return reply.code(204).send();
   });
 
   api.post('/api/pages/:id/check', { schema: { params: idParam } }, async (req, reply) => {
     const { id } = req.params;
-    const page = getPage.get(id) as PageRow | undefined;
+    const page = await repo.getPage(id);
     if (!page) return reply.code(404).send({ error: 'Página no encontrada' });
     await runCheck(page);
     return pageWithLast(page);
@@ -197,8 +200,8 @@ export async function routes(app: FastifyInstance) {
 
   api.post('/api/products/:id/check', { schema: { params: idParam } }, async (req, reply) => {
     const { id } = req.params;
-    if (!getProduct.get(id)) return reply.code(404).send({ error: 'Producto no encontrado' });
-    const pages = pagesOf.all(id) as unknown as PageRow[];
+    if (!(await repo.getProduct(id))) return reply.code(404).send({ error: 'Producto no encontrado' });
+    const pages = await repo.listPages(id);
     await Promise.all(pages.map(runCheck));
     return productDetail(id);
   });

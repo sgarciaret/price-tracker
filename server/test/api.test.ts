@@ -1,7 +1,8 @@
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
-import { db } from '../src/db.js';
+import { createFakeAuth, TEST_EMAIL, TEST_PASSWORD } from './fake-auth.js';
+import { createFakeRepo } from './fake-repo.js';
 
 let app: FastifyInstance;
 let productId = 0;
@@ -14,14 +15,13 @@ function inject(opts: InjectOptions) {
 }
 
 beforeAll(async () => {
-  // Estado limpio: los tests no hacen red ni tocan data/prices.db (DB_PATH es temporal)
-  db.exec('DELETE FROM price_checks; DELETE FROM pages; DELETE FROM products;');
-  app = await buildApp();
+  // Repo y auth en memoria: los tests no hacen red ni tocan ninguna base de datos
+  app = await buildApp({ repo: createFakeRepo(), auth: createFakeAuth().port });
 
   const login = await app.inject({
     method: 'POST',
     url: '/api/auth/login',
-    payload: { username: process.env.ADMIN_USERNAME, password: process.env.ADMIN_PASSWORD },
+    payload: { email: TEST_EMAIL, password: TEST_PASSWORD },
   });
   if (login.statusCode !== 200) throw new Error(`No se pudo iniciar sesión en los tests: ${login.payload}`);
   sessionCookie = String(login.headers['set-cookie']).split(';')[0];

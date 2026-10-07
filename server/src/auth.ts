@@ -1,61 +1,119 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { randomBytes } from 'node:crypto';
+import { createAuthClient, getSupabase } from './supabase.js';
 
 export const SESSION_COOKIE = 'pt_session';
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
+/** Si al access token le queda menos que esto, se refresca antes de atender la petición. */
+export const REFRESH_MARGIN_MS = 60_000;
 
-/** token -> fecha de caducidad (epoch ms). En memoria: reiniciar el servidor cierra las sesiones. */
-const sessions = new Map<string, number>();
+export interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+  /** Caducidad del access token (epoch ms). */
+  expiresAt: number;
+}
+
+/** Puerto de autenticación: Supabase Auth en producción, un falso en los tests. */
+export interface AuthPort {
+  signIn(email: string, password: string): Promise<TokenPair | null>;
+  refresh(refreshToken: string): Promise<TokenPair | null>;
+  signOut(accessToken: string): Promise<void>;
+}
+
+interface Session extends TokenPair {
+  /** Caducidad de la cookie (7 días desde el login). */
+  sessionExpiresAt: number;
+}
 
 /**
- * Lectura perezosa de `process.env` en cada llamada (no al cargar el módulo),
- * para que los tests puedan fijar o retirar las credenciales en cualquier momento.
- * Devuelve `null` si falta alguna de las dos variables.
+ * token de cookie -> tokens de Supabase. En memoria: reiniciar el servidor cierra las sesiones.
+ * Los tokens de Supabase nunca salen del servidor; el navegador solo ve el token opaco de la cookie.
  */
-export function getCredentials(): { username: string; password: string } | null {
-  const username = process.env.ADMIN_USERNAME;
-  const password = process.env.ADMIN_PASSWORD;
-  if (!username || !password) return null;
-  return { username, password };
-}
+const sessions = new Map<string, Session>();
+/** Refrescos en curso: varias peticiones simultáneas de la misma sesión comparten uno solo. */
+const refreshing = new Map<string, Promise<boolean>>();
 
-// `timingSafeEqual` exige buffers de la misma longitud: se comparan los hash SHA-256
-// de ambos lados para que la longitud del secreto no acorte la comparación.
-function safeEquals(a: string, b: string): boolean {
-  const left = createHash('sha256').update(a, 'utf8').digest();
-  const right = createHash('sha256').update(b, 'utf8').digest();
-  return timingSafeEqual(left, right);
-}
-
-export function verifyCredentials(username: string, password: string): boolean {
-  const creds = getCredentials();
-  if (!creds) return false;
-  const userOk = safeEquals(username, creds.username);
-  const passOk = safeEquals(password, creds.password);
-  return userOk && passOk;
-}
-
-export function createSession(): string {
+export function createSession(tokens: TokenPair): string {
   const token = randomBytes(32).toString('base64url');
-  sessions.set(token, Date.now() + SESSION_TTL_MS);
+  sessions.set(token, { ...tokens, sessionExpiresAt: Date.now() + SESSION_TTL_MS });
   return token;
 }
 
 /** Descarta las sesiones caducadas (se purga en cada comprobación). */
 function purgeExpired(): void {
   const now = Date.now();
-  for (const [token, expiresAt] of sessions) {
-    if (expiresAt <= now) sessions.delete(token);
+  for (const [token, s] of sessions) {
+    if (s.sessionExpiresAt <= now) sessions.delete(token);
   }
 }
 
-export function isValidSession(token: string | undefined): boolean {
-  if (!token) return false;
-  purgeExpired();
-  return sessions.has(token);
+async function refreshSession(auth: AuthPort, token: string, session: Session): Promise<boolean> {
+  try {
+    const tokens = await auth.refresh(session.refreshToken);
+    if (!tokens) {
+      sessions.delete(token);
+      return false;
+    }
+    sessions.set(token, { ...tokens, sessionExpiresAt: session.sessionExpiresAt });
+    return true;
+  } catch {
+    sessions.delete(token);
+    return false;
+  }
 }
 
-export function destroySession(token: string): void {
+/**
+ * Válida si la entrada existe y la cookie no ha caducado. Si al access token le quedan
+ * menos de 60 s, se refresca con el refresh token; si el refresco falla, la sesión se borra.
+ */
+export async function isValidSession(auth: AuthPort, token: string | undefined): Promise<boolean> {
+  if (!token) return false;
+  purgeExpired();
+  const session = sessions.get(token);
+  if (!session) return false;
+  if (session.expiresAt - Date.now() >= REFRESH_MARGIN_MS) return true;
+
+  let pending = refreshing.get(token);
+  if (!pending) {
+    pending = refreshSession(auth, token, session).finally(() => refreshing.delete(token));
+    refreshing.set(token, pending);
+  }
+  return pending;
+}
+
+/** Borra la sesión local y revoca el token en Supabase (los errores de red no impiden el logout). */
+export async function destroySession(auth: AuthPort, token: string): Promise<void> {
+  const session = sessions.get(token);
   sessions.delete(token);
+  if (session) await auth.signOut(session.accessToken);
+}
+
+const toPair = (s: { access_token: string; refresh_token: string; expires_at?: number; expires_in: number }): TokenPair => ({
+  accessToken: s.access_token,
+  refreshToken: s.refresh_token,
+  expiresAt: s.expires_at ? s.expires_at * 1000 : Date.now() + s.expires_in * 1000,
+});
+
+/** Implementación de `AuthPort` sobre Supabase Auth. */
+export function createSupabaseAuth(admin: () => SupabaseClient = getSupabase): AuthPort {
+  return {
+    async signIn(email, password) {
+      // Cliente aparte: iniciar sesión en el cliente compartido cambiaría el rol de sus consultas.
+      const { data, error } = await createAuthClient().auth.signInWithPassword({ email, password });
+      if (error || !data.session) return null;
+      return toPair(data.session);
+    },
+    async refresh(refreshToken) {
+      const { data, error } = await createAuthClient().auth.refreshSession({ refresh_token: refreshToken });
+      if (error || !data.session) return null;
+      return toPair(data.session);
+    },
+    async signOut(accessToken) {
+      const { error } = await admin().auth.admin.signOut(accessToken, 'local');
+      if (error) throw error;
+    },
+  };
 }
 
 /** Parseo manual de la cabecera `cookie`, sin dependencias (`@fastify/cookie`). */

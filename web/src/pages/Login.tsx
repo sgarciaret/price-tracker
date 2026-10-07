@@ -7,7 +7,7 @@ import { Input } from '../components/ui/Input';
 
 export function Login() {
   const { login } = useAuth();
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -18,7 +18,7 @@ export function Login() {
     setLoading(true);
     setError(null);
     try {
-      await login(username, password);
+      await login(email, password);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -32,11 +32,12 @@ export function Login() {
         <h1 className="text-lg font-semibold text-slate-900">Acceso del administrador</h1>
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
           <Input
-            id="admin-username"
-            label="Admin Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
+            id="admin-email"
+            label="Email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
             autoFocus
             required
           />

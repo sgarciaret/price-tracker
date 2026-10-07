@@ -48,8 +48,8 @@ async function req<T>(method: string, url: string, body?: unknown, opts: { allow
 export const api = {
   // Un 401 aquí significa credenciales incorrectas, no sesión caducada:
   // no se dispara el manejador y el error lo pinta la pantalla de login.
-  login: (username: string, password: string) =>
-    req<{ authenticated: boolean }>('POST', '/api/auth/login', { username, password }, { allowUnauthorized: true }),
+  login: (email: string, password: string) =>
+    req<{ authenticated: boolean }>('POST', '/api/auth/login', { email, password }, { allowUnauthorized: true }),
   logout: () => req<void>('POST', '/api/auth/logout'),
   session: () => req<{ authenticated: boolean }>('GET', '/api/auth/session'),
   listProducts: () => req<ProductSummary[]>('GET', '/api/products'),
@@ -73,7 +73,7 @@ export function formatPrice(price: number, currency = 'EUR') {
   }
 }
 
-export function formatDate(sqlDate: string) {
-  // SQLite guarda en UTC sin zona
-  return new Date(sqlDate.replace(' ', 'T') + 'Z').toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
+export function formatDate(isoDate: string) {
+  // La API devuelve las fechas en ISO 8601 con `Z` (UTC)
+  return new Date(isoDate).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
 }

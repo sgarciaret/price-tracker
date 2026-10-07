@@ -4,10 +4,15 @@
 Local price comparison web app using an npm workspaces monorepo: Fastify API backend (`server/`) and React + Vite frontend (`web/`).
 
 ## Prerequisites & Setup
-- **Node 24+ required**: Backend uses Node's native `node:sqlite` (`DatabaseSync`). Declared in `engines` (root `package.json`) and `.nvmrc`.
+- **Node 24+ required**: Declared in `engines` (root `package.json`) and `.nvmrc`. `node:sqlite` is only used by the one-off `migrate:sqlite` script.
 - **Playwright Chromium**: Run `npx playwright install chromium` for browser-based scraping fallback.
 - Install dependencies: `npm install`
-- **`.env` at the repo root** (git-ignored) with the single admin account: `ADMIN_USERNAME` and `ADMIN_PASSWORD`. Without them the server still boots, but every login answers `401` and the server log warns about the missing configuration.
+- **`.env` at the repo root** (git-ignored):
+  - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` — required; `src/index.ts` exits with code 1 naming the missing one. The service role key is backend-only and must never be imported from `web/`.
+  - `SUPABASE_ADMIN_EMAIL` and `SUPABASE_ADMIN_PASSWORD` — only read by `seed:admin`.
+- **Supabase setup**: schema lives in `supabase/migrations/0001_esquema_inicial.sql` (applied to the remote project with the Supabase MCP `apply_migration`; there is no Supabase CLI/Docker in the workflow). Then:
+  - `npm run seed:admin -w server`: creates the admin user in Supabase Auth from `SUPABASE_ADMIN_EMAIL`/`SUPABASE_ADMIN_PASSWORD`; idempotent (skips it if the email exists).
+  - `npm run migrate:sqlite -w server [-- <path.db>]`: one-off copy of `data/prices.db` to Supabase. Opens it read-only, writes `data/prices.backup-<timestamp>.db`, refuses to run if the Supabase tables are not empty, inserts each table in one request with explicit ids and dates converted from `YYYY-MM-DD HH:MM:SS` (UTC) to ISO, calls `reset_sequences()` via RPC and compares counts. Stop the app first.
 
 ## Essential Commands
 
@@ -27,11 +32,11 @@ Local price comparison web app using an npm workspaces monorepo: Fastify API bac
 - `npm run format`: Formats everything with Prettier (`.prettierrc`) — it rewrites existing files, so it is not part of `verify`.
 - `npm run build`: Builds frontend (`web/dist`) via `tsc --noEmit && vite build`.
 - *Note:* Before SPEC 04 there was no test runner at all (Jest/Vitest); typecheck plus the scraper CLI were the only verification. Vitest now covers `server/` only — React component tests and e2e tests are still out of scope.
-- *Testing quirks:* tests never open `data/prices.db` (`server/vitest.config.ts` sets `DB_PATH` to a temp file) and never hit the network or launch Chromium; the `/check` endpoints are excluded from the API tests.
-- *Auth in tests:* tests never read the real `.env` (`loadDotenv()` runs only from `src/index.ts`); `server/vitest.config.ts` provides its own `ADMIN_USERNAME`/`ADMIN_PASSWORD`. `api.test.ts` logs in from `beforeAll` and reuses the cookie in every `inject`, and `auth.test.ts` covers the auth endpoints. Test files run sequentially (`fileParallelism: false`) because both suites open the same temp database.
+- *Testing quirks:* tests never talk to Supabase, open any database, hit the network or launch Chromium; the `/check` endpoints are excluded from the API tests. `api.test.ts` and `auth.test.ts` inject an in-memory repo (`test/fake-repo.ts`) and a fake `AuthPort` (`test/fake-auth.ts`, single-use refresh tokens like Supabase) into `buildApp({ repo, auth })`. CI needs no Supabase secrets.
+- *Auth in tests:* tests never read the real `.env` (`loadDotenv()` runs only from `src/index.ts` and `scripts/`); `server/vitest.config.ts` sets no env vars. `api.test.ts` logs in against the fake auth from `beforeAll` and reuses the cookie in every `inject`; `auth.test.ts` covers login/logout, the 7-day cookie expiry, token refresh (<60 s left, shared between concurrent requests) and refresh failure → `401`. Time is simulated with `vi.useFakeTimers({ toFake: ['Date'] })`.
 
 ### Production / Local Serving
-- `npm run build && npm start`: Fastify serves compiled `web/dist` assets on `:3001` with SPA client routing fallback.
+- `npm run build && npm start`: Fastify serves compiled `web/dist` assets on `:3001` with SPA client routing fallback. The local app needs internet access (the database is Supabase).
 
 ### Scraper Testing CLI
 - `npm run try -w server -- <url> [css_selector]`: Test scraping against a live URL from the terminal without going through the web UI or database.
@@ -40,10 +45,13 @@ Local price comparison web app using an npm workspaces monorepo: Fastify API bac
 
 ### Backend (`server/`)
 - **TypeScript Imports**: Uses `NodeNext` module resolution. Internal relative imports **must** include the `.js` extension (e.g. `import { routes } from './routes.js';`).
-- **Env loading (`server/src/env.ts`)**: `loadDotenv()` reads `<repo root>/.env` with Node's native `process.loadEnvFile()` (no `dotenv` dependency) and tolerates a missing file. It is called from `src/index.ts` **before** `buildApp()` — never from `app.ts`, because tests import `buildApp()` and must not load the real `.env`.
-- **Auth (`server/src/auth.ts`)**: credentials read lazily from `ADMIN_USERNAME`/`ADMIN_PASSWORD` (`verifyCredentials()` compares via `crypto.timingSafeEqual`); sessions are an in-memory `Map<token, expiry>` (`SESSION_COOKIE = 'pt_session'`, `SESSION_TTL_MS = 7 días`) with a hand-rolled `parseCookies()`. Restarting the server drops all sessions.
-- **API protection (`server/src/routes.ts`)**: an `onRequest` hook registered **first** in `routes()` blocks every `/api/*` request without a valid session cookie (`401 { error: 'No autenticado' }`), except `POST /api/auth/login`, `POST /api/auth/logout` and `GET /api/auth/session`. `login` answers `200` + `Set-Cookie: pt_session=…; HttpOnly` or `401 { error: 'Usuario o contraseña incorrectos' }`; `session` returns `200 { authenticated }` without requiring a session.
-- **Database (`server/src/db.ts`)**: Embedded SQLite at `data/prices.db` (override with `DB_PATH` env var). No ORM or migration tool; tables (`products`, `pages`, `price_checks`) are auto-created on startup with WAL mode and foreign keys enabled.
+- **Env loading (`server/src/env.ts`)**: `loadDotenv()` reads `<repo root>/.env` with Node's native `process.loadEnvFile()` (no `dotenv` dependency) and tolerates a missing file. It is called from `src/index.ts` (**before** `buildApp()`) and from `scripts/` — never from `app.ts`, because tests import `buildApp()` and must not load the real `.env`.
+- **Dependency injection (`server/src/app.ts`)**: `buildApp({ repo, auth })` receives the data layer (`Repo`) and the auth port (`AuthPort`); production defaults are `createSupabaseRepo()` and `createSupabaseAuth()`. `routes()` gets both as plugin options.
+- **Supabase client (`server/src/supabase.ts`)**: `getSupabase()` is a lazily created singleton with the service role key (bypasses RLS). `createAuthClient()` returns a throwaway client for `signInWithPassword`/`refreshSession` — never sign in on the shared client, or its DB queries would run as the user and RLS (no policies) would hide every row.
+- **Auth (`server/src/auth.ts`)**: `AuthPort` (`signIn`, `refresh`, `signOut`) backed by Supabase Auth; login is by **email**. Sessions are an in-memory `Map<cookieToken, { accessToken, refreshToken, expiresAt, sessionExpiresAt }>` (`SESSION_COOKIE = 'pt_session'`, `SESSION_TTL_MS = 7 días`); Supabase tokens never leave the server. `isValidSession()` is async: valid while the 7-day cookie lives; if the access token has < 60 s left (`REFRESH_MARGIN_MS`) it refreshes, sharing one promise per session; a failed refresh deletes the session. `destroySession()` revokes the Supabase session (`auth.admin.signOut(jwt, 'local')`). Hand-rolled `parseCookies()`. Restarting the server drops all sessions.
+- **API protection (`server/src/routes.ts`)**: an `onRequest` hook registered **first** in `routes()` blocks every `/api/*` request without a valid session cookie (`401 { error: 'No autenticado' }`), except `POST /api/auth/login`, `POST /api/auth/logout` and `GET /api/auth/session`. `login` takes `{ email, password }` and answers `200` + `Set-Cookie: pt_session=…; HttpOnly` or `401 { error: 'Usuario o contraseña incorrectos' }` (malformed bodies are also `401`, never `400`); `logout` always answers `204` (a failed revocation is only logged); `session` returns `200 { authenticated }` without requiring a session.
+- **Database**: Postgres on Supabase. Tables `products`, `pages`, `price_checks` (`bigint generated by default as identity`, `timestamptz`), indexes `idx_pages_product`/`idx_checks_page`, RLS enabled with **no** policies (only the service role can read/write), plus `reset_sequences()`. Schema changes go in a new file under `supabase/migrations/`. `data/prices.db` is no longer used by the app; it (and `prices.backup-*.db`) is just a pre-migration backup.
+- **Repository (`server/src/repo.ts`, `server/src/repo-supabase.ts`)**: `Repo` interface plus `ProductRow`/`PageRow`/`CheckRow`/`Status`. The Supabase implementation normalizes every date to `toISOString()` (`…Z`), because `GET /api/products` compares `checked_at` as text to compute `last_check_at`; Supabase errors are thrown and end up as `500` + log.
 - **Scraping Pipeline (`server/src/scraper/`)**:
   1. Static `fetch` + Cheerio.
   2. Headless Playwright Chromium fallback (uses singleton browser instance; blocks media/images/fonts; waits for `networkidle`).
@@ -55,6 +63,7 @@ Local price comparison web app using an npm workspaces monorepo: Fastify API bac
 ### Frontend (`web/`)
 - React 19 + React Router 7 (`/login` for `Login`, `/` for `ProductList`, `/products/:id` for `ProductDetail`).
 - **Auth (`web/src/auth.tsx`)**: `AuthProvider` (checks `GET /api/auth/session` on mount, registers `setOnUnauthorized()` from `api.ts`, exposes `login()`/`logout()`), `useAuth()` with `status: 'checking' | 'authenticated' | 'guest'`, plus the guards `RequireAuth` (redirects to `/login` keeping `state.from`) and `RequireGuest` (keeps authenticated users off `/login`). No token is stored in JS: the session lives in the httpOnly cookie.
-- **Login screen (`web/src/pages/Login.tsx`)**: only two fields (labels "Admin Username" and "Admin password"), reusing `Card`/`Input`/`Button`/`Alert`. There is no registration or password recovery.
+- **Login screen (`web/src/pages/Login.tsx`)**: only two fields — "Email" (`type="email"`, `autoComplete="email"`) and "Admin password" — reusing `Card`/`Input`/`Button`/`Alert`. `api.login(email, password)` sends `{ email, password }`. There is no registration or password recovery.
+- `formatDate()` in `web/src/api.ts` expects ISO 8601 dates with `Z`, as returned by the API.
 - Tailwind CSS 4 configured via `@tailwindcss/vite` and `@import "tailwindcss";` in `src/index.css`.
 - API client in `web/src/api.ts` uses native `fetch` (no Redux, TanStack Query, or external state libraries); a `401` notifies the registered handler and throws `Error('Sesión caducada')` — except in `login()`, where the `401` means bad credentials and is shown on the form.
