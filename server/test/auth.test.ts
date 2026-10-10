@@ -57,6 +57,22 @@ describe('autenticación', () => {
     expect(setCookie).toContain('Path=/');
     expect(setCookie).toContain('SameSite=Lax');
     expect(setCookie).toContain(`Max-Age=${SESSION_TTL_MS / 1000}`);
+    expect(setCookie).not.toContain('Secure');
+  });
+
+  it('en producción (NODE_ENV=production) incluye la directiva Secure en login y logout', async () => {
+    const origEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const resLogin = await login();
+      expect(String(resLogin.headers['set-cookie'])).toContain('; Secure');
+
+      const cookie = String(resLogin.headers['set-cookie']).split(';')[0];
+      const resLogout = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie } });
+      expect(String(resLogout.headers['set-cookie'])).toContain('; Secure');
+    } finally {
+      process.env.NODE_ENV = origEnv;
+    }
   });
 
   it('la cookie es un token opaco: no contiene los tokens de Supabase', async () => {

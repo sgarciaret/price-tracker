@@ -23,9 +23,11 @@ const loginBody = z
   .object({ email: z.string().trim().catch(''), password: z.string().catch('') })
   .catch({ email: '', password: '' });
 
+const secureDirective = () => (process.env.NODE_ENV === 'production' ? '; Secure' : '');
+
 const sessionCookie = (token: string) =>
-  `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_TTL_MS / 1000}`;
-const clearedCookie = `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`;
+  `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_TTL_MS / 1000}${secureDirective()}`;
+const clearedCookie = () => `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secureDirective()}`;
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const productBody = z.object({
@@ -116,7 +118,7 @@ export async function routes(app: FastifyInstance, { repo, auth }: RoutesOptions
         app.log.warn({ err }, 'No se pudo revocar el token en Supabase');
       }
     }
-    return reply.code(204).header('set-cookie', clearedCookie).send();
+    return reply.code(204).header('set-cookie', clearedCookie()).send();
   });
 
   // No exige sesión: el frontend comprueba el estado sin disparar el manejador de 401.

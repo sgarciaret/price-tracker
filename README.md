@@ -63,6 +63,52 @@ npm test
 
 Los datos se guardan en Postgres en Supabase (la app necesita conexión a internet). `data/prices.db` ya no se usa: queda solo como copia de respaldo de antes de la migración.
 
+## Despliegue en Render (Docker)
+
+La aplicación está preparada para desplegarse como un **Web Service** en el plan gratuito de Render utilizando Docker.
+
+### Opción A: Despliegue automático con Render Blueprint (`render.yaml`)
+1. Sube el código a tu repositorio de GitHub.
+2. En el panel de Render, ve a **Blueprints** → **New Blueprint Instance**.
+3. Conecta tu repositorio de GitHub. Render detectará automáticamente el archivo `render.yaml`.
+4. Rellena las variables de entorno marcadas como requeridas:
+   - `SUPABASE_URL`: URL del proyecto Supabase (`https://<proyecto>.supabase.co`).
+   - `SUPABASE_SERVICE_ROLE_KEY`: Clave de rol de servicio (Service Role Key) de Supabase.
+5. Haz clic en **Apply**. Render compilará la imagen Docker multi-stage y publicará la aplicación en un subdominio `https://<tu-app>.onrender.com`.
+
+### Opción B: Despliegue manual
+1. En Render, crea un nuevo **Web Service** y conecta tu repositorio.
+2. Runtime / Environment: selecciona **Docker** (usará el `Dockerfile` de la raíz).
+3. Plan: **Free**.
+4. En **Environment Variables**, añade:
+   - `NODE_ENV`: `production`
+   - `PORT`: `3001`
+   - `SUPABASE_URL`: tu URL de Supabase.
+   - `SUPABASE_SERVICE_ROLE_KEY`: tu Service Role Key de Supabase.
+5. Inicia el despliegue.
+
+### Comportamiento del plan gratuito de Render
+- **Suspensión por inactividad:** En el plan gratuito, el contenedor entra en suspensión tras 15 minutos sin recibir peticiones. Al recibir una nueva petición, tarda entre 30 y 50 segundos en reanudarse.
+- **Sesiones tras despertar:** Las sesiones de usuario se gestionan en la memoria del servidor Fastify. Cuando el contenedor entra en reposo y se reactiva, la memoria se reinicia, solicitando de nuevo las credenciales de administrador en la pantalla `/login`.
+- **Chromium y Scraping:** La imagen de producción incluye Chromium preinstalado y dependencias nativas de Linux optimizadas (`--no-sandbox`, `--disable-dev-shm-usage`) para operar de forma estable en el entorno del contenedor.
+
+### Comandos Docker en local
+Para probar el contenedor localmente antes de desplegar:
+```
+# Construir la imagen
+docker build -t price-tracker .
+
+# Arrancar el contenedor con las variables del .env
+docker run -d --name price-tracker -p 3001:3001 --env-file .env price-tracker
+
+# Ver logs
+docker logs -f price-tracker
+
+# Parar y eliminar
+docker rm -f price-tracker
+```
+Accede desde el navegador a `http://localhost:3001`.
+
 ## Autenticación
 - Pantalla única de acceso en `/login` (Email y Admin password; sin registro ni recuperación de contraseña).
 - `POST /api/auth/login` recibe `{ email, password }`, lo valida contra Supabase Auth y devuelve la cookie `pt_session` (httpOnly, `SameSite=Lax`, 7 días de duración). Con credenciales incorrectas responde `401 { "error": "Usuario o contraseña incorrectos" }`.

@@ -13,6 +13,7 @@ if (missing.length > 0) {
 }
 
 const PORT = Number(process.env.PORT ?? 3001);
+const HOST = process.env.HOST ?? '0.0.0.0';
 const app = await buildApp({ repo: createSupabaseRepo(), auth: createSupabaseAuth() });
 
 const shutdown = async () => {
@@ -23,4 +24,4 @@ const shutdown = async () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-await app.listen({ port: PORT, host: '127.0.0.1' });
+await app.listen({ port: PORT, host: HOST });

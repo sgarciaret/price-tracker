@@ -17,7 +17,22 @@ export interface AppDeps {
 export async function buildApp({ repo = createSupabaseRepo(), auth = createSupabaseAuth() }: AppDeps = {}) {
   const app = Fastify({ logger: { level: 'info' } });
 
-  await app.register(cors, { origin: [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/] });
+  const allowedOrigins: (string | RegExp)[] = [
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+    /^https:\/\/.*\.onrender\.com$/,
+  ];
+  if (process.env.RENDER_EXTERNAL_URL) {
+    allowedOrigins.push(process.env.RENDER_EXTERNAL_URL.replace(/\/$/, ''));
+  }
+  if (process.env.CORS_ORIGIN) {
+    for (const origin of process.env.CORS_ORIGIN.split(',')) {
+      const trimmed = origin.trim().replace(/\/$/, '');
+      if (trimmed) allowedOrigins.push(trimmed);
+    }
+  }
+
+  await app.register(cors, { origin: allowedOrigins });
   await app.register(routes, { repo, auth });
 
   // En modo "start", sirve el frontend compilado si existe

@@ -26,10 +26,15 @@ let browserPromise: Promise<Browser> | null = null;
 
 function getBrowser(): Promise<Browser> {
   if (!browserPromise) {
-    browserPromise = chromium.launch({ headless: true }).catch((e) => {
-      browserPromise = null;
-      throw e;
-    });
+    browserPromise = chromium
+      .launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      })
+      .catch((e) => {
+        browserPromise = null;
+        throw e;
+      });
   }
   return browserPromise;
 }
