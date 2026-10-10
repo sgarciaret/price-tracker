@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSupabaseAuth, type AuthPort } from './auth.js';
+import { MemoryCache } from './cache.js';
 import type { Repo } from './repo.js';
 import { createSupabaseRepo } from './repo-supabase.js';
 import { routes } from './routes.js';
@@ -12,9 +13,10 @@ import { routes } from './routes.js';
 export interface AppDeps {
   repo?: Repo;
   auth?: AuthPort;
+  cache?: MemoryCache;
 }
 
-export async function buildApp({ repo = createSupabaseRepo(), auth = createSupabaseAuth() }: AppDeps = {}) {
+export async function buildApp({ repo = createSupabaseRepo(), auth = createSupabaseAuth(), cache }: AppDeps = {}) {
   const app = Fastify({ logger: { level: 'info' } });
 
   const allowedOrigins: (string | RegExp)[] = [
@@ -33,7 +35,7 @@ export async function buildApp({ repo = createSupabaseRepo(), auth = createSupab
   }
 
   await app.register(cors, { origin: allowedOrigins });
-  await app.register(routes, { repo, auth });
+  await app.register(routes, { repo, auth, cache });
 
   // En modo "start", sirve el frontend compilado si existe
   const webDist = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');

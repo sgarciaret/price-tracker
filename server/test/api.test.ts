@@ -1,10 +1,11 @@
 import type { FastifyInstance, InjectOptions } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { createFakeAuth, TEST_EMAIL, TEST_PASSWORD } from './fake-auth.js';
 import { createFakeRepo } from './fake-repo.js';
 
 let app: FastifyInstance;
+let repo: ReturnType<typeof createFakeRepo>;
 let productId = 0;
 let pageId = 0;
 let sessionCookie = '';
@@ -16,7 +17,8 @@ function inject(opts: InjectOptions) {
 
 beforeAll(async () => {
   // Repo y auth en memoria: los tests no hacen red ni tocan ninguna base de datos
-  app = await buildApp({ repo: createFakeRepo(), auth: createFakeAuth().port });
+  repo = createFakeRepo();
+  app = await buildApp({ repo, auth: createFakeAuth().port });
 
   const login = await app.inject({
     method: 'POST',
@@ -161,5 +163,110 @@ describe('borrado de productos', () => {
     const again = await inject({ method: 'GET', url: `/api/products/${productId}` });
     expect(again.statusCode).toBe(404);
     expect(again.json()).toEqual({ error: 'Producto no encontrado' });
+  });
+});
+
+describe('caché e invalidación', () => {
+  it('sirve peticiones sucesivas de GET /api/products desde la caché sin consultar el repositorio', async () => {
+    const spy = vi.spyOn(repo, 'listProductsSummary');
+    spy.mockClear();
+
+    // 1ª petición: miss de caché -> consulta el repositorio
+    const res1 = await inject({ method: 'GET', url: '/api/products' });
+    expect(res1.statusCode).toBe(200);
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    // 2ª petición: hit de caché -> NO consulta el repositorio
+    const res2 = await inject({ method: 'GET', url: '/api/products' });
+    expect(res2.statusCode).toBe(200);
+    expect(res2.json()).toEqual(res1.json());
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    spy.mockRestore();
+  });
+
+  it('invalida la caché de lista y detalle al crear, editar o eliminar productos y páginas', async () => {
+    const listSpy = vi.spyOn(repo, 'listProductsSummary');
+    const detailSpy = vi.spyOn(repo, 'getProductDetail');
+    listSpy.mockClear();
+    detailSpy.mockClear();
+
+    // Crear un producto
+    const createRes = await inject({
+      method: 'POST',
+      url: '/api/products',
+      payload: { name: 'Teclado Mecánico' },
+    });
+    const item = createRes.json();
+    const itemId = item.id;
+
+    // Primer GET detalle -> miss
+    await inject({ method: 'GET', url: `/api/products/${itemId}` });
+    expect(detailSpy).toHaveBeenCalledTimes(1);
+
+    // Segundo GET detalle -> hit en caché
+    await inject({ method: 'GET', url: `/api/products/${itemId}` });
+    expect(detailSpy).toHaveBeenCalledTimes(1);
+
+    // Primer GET lista -> miss
+    await inject({ method: 'GET', url: '/api/products' });
+    expect(listSpy).toHaveBeenCalledTimes(1);
+
+    // Segundo GET lista -> hit en caché
+    await inject({ method: 'GET', url: '/api/products' });
+    expect(listSpy).toHaveBeenCalledTimes(1);
+
+    // Añadir página debe invalidar caché de detalle y lista
+    const addPageRes = await inject({
+      method: 'POST',
+      url: `/api/products/${itemId}/pages`,
+      payload: { url: 'https://store.example.com/keyboard', css_selector: '.price' },
+    });
+    expect(addPageRes.statusCode).toBe(201);
+    const addedPageId = addPageRes.json().id;
+
+    // Ahora GET lista y GET detalle deben consultar de nuevo el repo
+    await inject({ method: 'GET', url: '/api/products' });
+    expect(listSpy).toHaveBeenCalledTimes(2);
+
+    await inject({ method: 'GET', url: `/api/products/${itemId}` });
+    expect(detailSpy).toHaveBeenCalledTimes(2);
+
+    // Editar página debe invalidar detalle y lista
+    await inject({
+      method: 'PUT',
+      url: `/api/pages/${addedPageId}`,
+      payload: { css_selector: '.new-price' },
+    });
+
+    await inject({ method: 'GET', url: '/api/products' });
+    expect(listSpy).toHaveBeenCalledTimes(3);
+
+    await inject({ method: 'GET', url: `/api/products/${itemId}` });
+    expect(detailSpy).toHaveBeenCalledTimes(3);
+
+    // Eliminar página debe invalidar detalle y lista
+    await inject({
+      method: 'DELETE',
+      url: `/api/pages/${addedPageId}`,
+    });
+
+    await inject({ method: 'GET', url: '/api/products' });
+    expect(listSpy).toHaveBeenCalledTimes(4);
+
+    await inject({ method: 'GET', url: `/api/products/${itemId}` });
+    expect(detailSpy).toHaveBeenCalledTimes(4);
+
+    // Eliminar producto
+    await inject({
+      method: 'DELETE',
+      url: `/api/products/${itemId}`,
+    });
+
+    await inject({ method: 'GET', url: '/api/products' });
+    expect(listSpy).toHaveBeenCalledTimes(5);
+
+    listSpy.mockRestore();
+    detailSpy.mockRestore();
   });
 });

@@ -7,6 +7,20 @@ export interface CheckRow {
   status: Status; error_msg: string | null; method: string | null; checked_at: string;
 }
 
+export interface ProductSummaryRow extends ProductRow {
+  page_count: number;
+  last_check_at: string | null;
+  best: {
+    price: number;
+    currency: string | null;
+    store: string;
+  } | null;
+}
+
+export interface ProductDetailRow extends ProductRow {
+  pages: Array<PageRow & { last_check: CheckRow | null }>;
+}
+
 export interface NewCheck {
   pageId: number;
   price: number | null;
@@ -20,7 +34,9 @@ export interface NewCheck {
 export interface Repo {
   /** ORDER BY created_at DESC, id DESC */
   listProducts(): Promise<ProductRow[]>;
+  listProductsSummary(): Promise<ProductSummaryRow[]>;
   getProduct(id: number): Promise<ProductRow | undefined>;
+  getProductDetail(id: number): Promise<ProductDetailRow | undefined>;
   createProduct(name: string, imageUrl: string | null): Promise<ProductRow>;
   updateProduct(id: number, name: string, imageUrl: string | null): Promise<ProductRow | undefined>;
   deleteProduct(id: number): Promise<void>;

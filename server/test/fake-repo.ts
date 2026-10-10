@@ -1,4 +1,4 @@
-import type { CheckRow, PageRow, ProductRow, Repo } from '../src/repo.js';
+import type { CheckRow, PageRow, ProductDetailRow, ProductRow, ProductSummaryRow, Repo } from '../src/repo.js';
 
 /** `Repo` en memoria para los tests: sin red ni base de datos. */
 export function createFakeRepo(): Repo {
@@ -12,8 +12,52 @@ export function createFakeRepo(): Repo {
     async listProducts() {
       return [...products].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id);
     },
+    async listProductsSummary(): Promise<ProductSummaryRow[]> {
+      const list = await this.listProducts();
+      return Promise.all(
+        list.map(async (p) => {
+          const pPages = await this.listPages(p.id);
+          const pagesWithLast = await Promise.all(
+            pPages.map(async (page) => ({
+              ...page,
+              last_check: await this.lastCheck(page.id),
+            })),
+          );
+          const ok = pagesWithLast.filter((x) => x.last_check?.status === 'ok' && x.last_check.price != null);
+          const best = ok.sort((a, b) => a.last_check!.price! - b.last_check!.price!)[0];
+          let last_check_at: string | null = null;
+          for (const x of pagesWithLast) {
+            const checkedAt = x.last_check?.checked_at ?? null;
+            if (checkedAt !== null && (last_check_at === null || checkedAt > last_check_at)) {
+              last_check_at = checkedAt;
+            }
+          }
+          return {
+            ...p,
+            page_count: pagesWithLast.length,
+            last_check_at,
+            best: best ? { price: best.last_check!.price!, currency: best.last_check!.currency, store: best.store } : null,
+          };
+        }),
+      );
+    },
     async getProduct(id) {
       return products.find((p) => p.id === id);
+    },
+    async getProductDetail(id: number): Promise<ProductDetailRow | undefined> {
+      const product = await this.getProduct(id);
+      if (!product) return undefined;
+      const pPages = await this.listPages(id);
+      const pagesWithLast = await Promise.all(
+        pPages.map(async (page) => ({
+          ...page,
+          last_check: await this.lastCheck(page.id),
+        })),
+      );
+      return {
+        ...product,
+        pages: pagesWithLast,
+      };
     },
     async createProduct(name, imageUrl) {
       const row: ProductRow = { id: nextId++, name, image_url: imageUrl, created_at: now() };

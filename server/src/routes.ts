@@ -11,7 +11,8 @@ import {
   SESSION_TTL_MS,
   type AuthPort,
 } from './auth.js';
-import type { PageRow, Repo } from './repo.js';
+import { MemoryCache } from './cache.js';
+import type { PageRow, ProductDetailRow, ProductSummaryRow, Repo } from './repo.js';
 import { checkUrl } from './scraper/index.js';
 
 const limit = pLimit(3);
@@ -47,17 +48,18 @@ const storeOf = (url: string) => new URL(url).hostname.replace(/^www\./, '');
 export interface RoutesOptions {
   repo: Repo;
   auth: AuthPort;
+  cache?: MemoryCache;
 }
 
-export async function routes(app: FastifyInstance, { repo, auth }: RoutesOptions) {
+export async function routes(app: FastifyInstance, { repo, auth, cache = new MemoryCache() }: RoutesOptions) {
   const pageWithLast = async (p: PageRow) => ({ ...p, last_check: await repo.lastCheck(p.id) });
-  const pagesWithLast = async (productId: number) => Promise.all((await repo.listPages(productId)).map(pageWithLast));
 
-  async function productDetail(id: number) {
-    const product = await repo.getProduct(id);
-    if (!product) return null;
-    return { ...product, pages: await pagesWithLast(id) };
-  }
+  const invalidateProduct = (productId?: number) => {
+    cache.delete('products:list');
+    if (productId != null) {
+      cache.delete(`products:detail:${productId}`);
+    }
+  };
 
   async function runCheck(page: PageRow) {
     const r = await limit(() => checkUrl(page.url, page.css_selector));
@@ -127,47 +129,44 @@ export async function routes(app: FastifyInstance, { repo, auth }: RoutesOptions
   }));
 
   api.get('/api/products', async () => {
-    const products = await repo.listProducts();
-    return Promise.all(products.map(async (p) => {
-      const pages = await pagesWithLast(p.id);
-      const ok = pages.filter((x) => x.last_check?.status === 'ok' && x.last_check.price != null);
-      const best = ok.sort((a, b) => a.last_check!.price! - b.last_check!.price!)[0];
-      let last_check_at: string | null = null;
-      for (const x of pages) {
-        const checkedAt = x.last_check?.checked_at ?? null;
-        if (checkedAt !== null && (last_check_at === null || checkedAt > last_check_at)) last_check_at = checkedAt;
-      }
-      return {
-        ...p,
-        page_count: pages.length,
-        last_check_at,
-        best: best ? { price: best.last_check!.price, currency: best.last_check!.currency, store: best.store } : null,
-      };
-    }));
+    const cached = cache.get<ProductSummaryRow[]>('products:list');
+    if (cached) return cached;
+    const summary = await repo.listProductsSummary();
+    cache.set('products:list', summary);
+    return summary;
   });
 
   api.post('/api/products', { schema: { body: productBody } }, async (req, reply) => {
     const body = req.body;
     const row = await repo.createProduct(body.name, body.image_url ?? null);
+    invalidateProduct(row.id);
     return reply.code(201).send(row);
   });
 
   api.get('/api/products/:id', { schema: { params: idParam } }, async (req, reply) => {
     const { id } = req.params;
-    const detail = await productDetail(id);
-    return detail ?? reply.code(404).send({ error: 'Producto no encontrado' });
+    const cacheKey = `products:detail:${id}`;
+    const cached = cache.get<ProductDetailRow>(cacheKey);
+    if (cached) return cached;
+    const detail = await repo.getProductDetail(id);
+    if (!detail) return reply.code(404).send({ error: 'Producto no encontrado' });
+    cache.set(cacheKey, detail);
+    return detail;
   });
 
   api.put('/api/products/:id', { schema: { params: idParam, body: productBody } }, async (req, reply) => {
     const { id } = req.params;
     const body = req.body;
     const row = await repo.updateProduct(id, body.name, body.image_url ?? null);
-    return row ?? reply.code(404).send({ error: 'Producto no encontrado' });
+    if (!row) return reply.code(404).send({ error: 'Producto no encontrado' });
+    invalidateProduct(id);
+    return row;
   });
 
   api.delete('/api/products/:id', { schema: { params: idParam } }, async (req, reply) => {
     const { id } = req.params;
     await repo.deleteProduct(id);
+    invalidateProduct(id);
     return reply.code(204).send();
   });
 
@@ -176,6 +175,7 @@ export async function routes(app: FastifyInstance, { repo, auth }: RoutesOptions
     if (!(await repo.getProduct(id))) return reply.code(404).send({ error: 'Producto no encontrado' });
     const body = req.body;
     const row = await repo.createPage(id, body.url, storeOf(body.url), body.css_selector);
+    invalidateProduct(id);
     return reply.code(201).send(await pageWithLast(row));
   });
 
@@ -183,12 +183,18 @@ export async function routes(app: FastifyInstance, { repo, auth }: RoutesOptions
     const { id } = req.params;
     const body = req.body;
     const row = await repo.updatePage(id, body.css_selector);
-    return row ? pageWithLast(row) : reply.code(404).send({ error: 'Página no encontrada' });
+    if (!row) return reply.code(404).send({ error: 'Página no encontrada' });
+    invalidateProduct(row.product_id);
+    return pageWithLast(row);
   });
 
   api.delete('/api/pages/:id', { schema: { params: idParam } }, async (req, reply) => {
     const { id } = req.params;
+    const page = await repo.getPage(id);
     await repo.deletePage(id);
+    if (page) {
+      invalidateProduct(page.product_id);
+    }
     return reply.code(204).send();
   });
 
@@ -197,6 +203,7 @@ export async function routes(app: FastifyInstance, { repo, auth }: RoutesOptions
     const page = await repo.getPage(id);
     if (!page) return reply.code(404).send({ error: 'Página no encontrada' });
     await runCheck(page);
+    invalidateProduct(page.product_id);
     return pageWithLast(page);
   });
 
@@ -205,6 +212,11 @@ export async function routes(app: FastifyInstance, { repo, auth }: RoutesOptions
     if (!(await repo.getProduct(id))) return reply.code(404).send({ error: 'Producto no encontrado' });
     const pages = await repo.listPages(id);
     await Promise.all(pages.map(runCheck));
-    return productDetail(id);
+    invalidateProduct(id);
+    const detail = await repo.getProductDetail(id);
+    if (detail) {
+      cache.set(`products:detail:${id}`, detail);
+    }
+    return detail ?? reply.code(404).send({ error: 'Producto no encontrado' });
   });
 }

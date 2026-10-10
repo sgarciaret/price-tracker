@@ -19,6 +19,57 @@ export interface ProductDetail {
 
 let onUnauthorized: (() => void) | null = null;
 
+const CLIENT_CACHE_TTL_MS = 30 * 1000;
+
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+const clientCache = new Map<string, CacheEntry<unknown>>();
+
+function getFromCache<T>(key: string): T | undefined {
+  const entry = clientCache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() >= entry.expiresAt) {
+    clientCache.delete(key);
+    return undefined;
+  }
+  return entry.value as T;
+}
+
+function setInCache<T>(key: string, value: T, ttlMs: number = CLIENT_CACHE_TTL_MS): void {
+  clientCache.set(key, {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  });
+}
+
+export function clearClientCache(keyPrefix?: string): void {
+  if (!keyPrefix) {
+    clientCache.clear();
+    return;
+  }
+  for (const key of Array.from(clientCache.keys())) {
+    if (key.startsWith(keyPrefix)) {
+      clientCache.delete(key);
+    }
+  }
+}
+
+function invalidateClientProducts(productId?: number) {
+  clientCache.delete('products:list');
+  if (productId != null) {
+    clientCache.delete(`products:detail:${productId}`);
+  } else {
+    for (const key of Array.from(clientCache.keys())) {
+      if (key.startsWith('products:detail:')) {
+        clientCache.delete(key);
+      }
+    }
+  }
+}
+
 /**
  * El AuthProvider registra aquí el manejador de `401` (en lugar de importar `auth.tsx`,
  * que crearía un ciclo). `req()` lo invoca antes de lanzar `Error('Sesión caducada')`.
@@ -50,19 +101,64 @@ export const api = {
   // no se dispara el manejador y el error lo pinta la pantalla de login.
   login: (email: string, password: string) =>
     req<{ authenticated: boolean }>('POST', '/api/auth/login', { email, password }, { allowUnauthorized: true }),
-  logout: () => req<void>('POST', '/api/auth/logout'),
+  logout: async () => {
+    clearClientCache();
+    return req<void>('POST', '/api/auth/logout');
+  },
   session: () => req<{ authenticated: boolean }>('GET', '/api/auth/session'),
-  listProducts: () => req<ProductSummary[]>('GET', '/api/products'),
-  getProduct: (id: number) => req<ProductDetail>('GET', `/api/products/${id}`),
-  createProduct: (name: string, image_url?: string) => req<ProductSummary>('POST', '/api/products', { name, image_url }),
-  updateProduct: (id: number, name: string, image_url: string | null) => req('PUT', `/api/products/${id}`, { name, image_url }),
-  deleteProduct: (id: number) => req<void>('DELETE', `/api/products/${id}`),
-  addPage: (productId: number, url: string, css_selector?: string) =>
-    req<Page>('POST', `/api/products/${productId}/pages`, { url, css_selector }),
-  updatePage: (id: number, css_selector: string | null) => req<Page>('PUT', `/api/pages/${id}`, { css_selector }),
-  deletePage: (id: number) => req<void>('DELETE', `/api/pages/${id}`),
-  checkPage: (id: number) => req<Page>('POST', `/api/pages/${id}/check`),
-  checkProduct: (id: number) => req<ProductDetail>('POST', `/api/products/${id}/check`),
+  listProducts: async () => {
+    const cached = getFromCache<ProductSummary[]>('products:list');
+    if (cached) return cached;
+    const res = await req<ProductSummary[]>('GET', '/api/products');
+    setInCache('products:list', res);
+    return res;
+  },
+  getProduct: async (id: number) => {
+    const key = `products:detail:${id}`;
+    const cached = getFromCache<ProductDetail>(key);
+    if (cached) return cached;
+    const res = await req<ProductDetail>('GET', `/api/products/${id}`);
+    setInCache(key, res);
+    return res;
+  },
+  createProduct: async (name: string, image_url?: string) => {
+    const res = await req<ProductSummary>('POST', '/api/products', { name, image_url });
+    invalidateClientProducts(res.id);
+    return res;
+  },
+  updateProduct: async (id: number, name: string, image_url: string | null) => {
+    const res = await req<ProductSummary>('PUT', `/api/products/${id}`, { name, image_url });
+    invalidateClientProducts(id);
+    return res;
+  },
+  deleteProduct: async (id: number) => {
+    await req<void>('DELETE', `/api/products/${id}`);
+    invalidateClientProducts(id);
+  },
+  addPage: async (productId: number, url: string, css_selector?: string) => {
+    const res = await req<Page>('POST', `/api/products/${productId}/pages`, { url, css_selector });
+    invalidateClientProducts(productId);
+    return res;
+  },
+  updatePage: async (id: number, css_selector: string | null) => {
+    const res = await req<Page>('PUT', `/api/pages/${id}`, { css_selector });
+    invalidateClientProducts(res.product_id);
+    return res;
+  },
+  deletePage: async (id: number) => {
+    await req<void>('DELETE', `/api/pages/${id}`);
+    invalidateClientProducts();
+  },
+  checkPage: async (id: number) => {
+    const res = await req<Page>('POST', `/api/pages/${id}/check`);
+    invalidateClientProducts(res.product_id);
+    return res;
+  },
+  checkProduct: async (id: number) => {
+    const res = await req<ProductDetail>('POST', `/api/products/${id}/check`);
+    invalidateClientProducts(id);
+    return res;
+  },
 };
 
 export function formatPrice(price: number, currency = 'EUR') {
