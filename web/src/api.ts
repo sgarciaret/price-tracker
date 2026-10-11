@@ -7,6 +7,8 @@ export interface Check {
 export interface Page {
   id: number; product_id: number; url: string; store: string;
   css_selector: string | null; created_at: string; last_check: Check | null;
+  best_price: number | null;
+  best_price_at: string | null;
 }
 export interface ProductSummary {
   id: number; name: string; image_url: string | null; created_at: string;

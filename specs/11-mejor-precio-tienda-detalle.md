@@ -1,6 +1,6 @@
 # SPEC 11 — Mejor precio por tienda en detalle
 
-> **Status:** Aprobado  
+> **Status:** Implementado  
 > **Depends on:** SPEC 09-precio-mejor-collection.md  
 > **Date:** 2026-10-11  
 > **Objective:** Mostrar en la pantalla de detalle de producto el precio más bajo registrado por cada tienda junto con la fecha de su última ocurrencia.

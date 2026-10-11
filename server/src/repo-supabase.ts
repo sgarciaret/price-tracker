@@ -20,6 +20,8 @@ const toPage = (r: PageRow): PageRow => ({
   store: r.store,
   css_selector: r.css_selector,
   created_at: iso(r.created_at),
+  best_price: r.best_price,
+  best_price_at: r.best_price_at ? iso(r.best_price_at) : null,
 });
 const toCheck = (r: CheckRow): CheckRow => ({
   id: r.id,
@@ -203,6 +205,20 @@ export function createSupabaseRepo(client: () => SupabaseClient = getSupabase): 
               await from('products')
                 .update({ best_price: c.price, best_price_at: check.checked_at })
                 .eq('id', page.product_id),
+            );
+          }
+          // Actualiza el mejor precio de la página
+          if (page.best_price == null || c.price < page.best_price) {
+            unwrap(
+              await from('pages')
+                .update({ best_price: c.price, best_price_at: check.checked_at })
+                .eq('id', c.pageId),
+            );
+          } else if (c.price === page.best_price) {
+            unwrap(
+              await from('pages')
+                .update({ best_price_at: check.checked_at })
+                .eq('id', c.pageId),
             );
           }
         }

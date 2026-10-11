@@ -84,7 +84,7 @@ export function createFakeRepo(): Repo {
       return pages.find((p) => p.id === id);
     },
     async createPage(productId, url, store, cssSelector) {
-      const row: PageRow = { id: nextId++, product_id: productId, url, store, css_selector: cssSelector, created_at: now() };
+      const row: PageRow = { id: nextId++, product_id: productId, url, store, css_selector: cssSelector, created_at: now(), best_price: null, best_price_at: null };
       pages.push(row);
       return { ...row };
     },
@@ -126,6 +126,13 @@ export function createFakeRepo(): Repo {
           if (product && (product.best_price == null || c.price < product.best_price)) {
             product.best_price = c.price;
             product.best_price_at = row.checked_at;
+          }
+          // Actualiza el mejor precio de la página
+          if (page.best_price == null || c.price < page.best_price) {
+            page.best_price = c.price;
+            page.best_price_at = row.checked_at;
+          } else if (c.price === page.best_price) {
+            page.best_price_at = row.checked_at;
           }
         }
       }

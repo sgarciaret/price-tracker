@@ -169,6 +169,7 @@ export function ProductDetail() {
                   <th className="px-3 py-2">Tienda</th>
                   <th className="px-3 py-2 text-right">Precio</th>
                   <th className="px-3 py-2 text-right">Diferencia</th>
+                  <th className="px-3 py-2 text-right">Mejor precio</th>
                   <th className="px-3 py-2">Estado</th>
                   <th className="px-3 py-2">Comprobado</th>
                   <th className="px-3 py-2" />
@@ -197,6 +198,16 @@ export function ProductDetail() {
                         {diff != null && diff > 0
                           ? `+${formatPrice(diff, c!.currency ?? 'EUR')} (+${((diff / min!) * 100).toFixed(1)}%)`
                           : ''}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {page.best_price != null ? (
+                          <>
+                            <div className="font-semibold">{formatPrice(page.best_price, c?.currency ?? 'EUR')}</div>
+                            {page.best_price_at && <div className="text-xs text-slate-500">{formatDate(page.best_price_at)}</div>}
+                          </>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         {busy ? (

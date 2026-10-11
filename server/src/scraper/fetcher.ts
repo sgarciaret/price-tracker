@@ -81,7 +81,7 @@ export async function fetchWithBrowser(url: string): Promise<FetchResult> {
   await context.addInitScript(() => {
     // Oculta huella de automatización
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    // @ts-ignore
+    // @ts-expect-error Property 'chrome' does not exist on type 'Window & typeof globalThis'
     window.chrome = { runtime: {} };
   });
   try {
