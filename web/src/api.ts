@@ -12,6 +12,8 @@ export interface ProductSummary {
   id: number; name: string; image_url: string | null; created_at: string;
   page_count: number; last_check_at: string | null;
   best: { price: number; currency: string; store: string } | null;
+  best_price: number | null;         // Nuevo: precio más bajo histórico
+  best_price_at: string | null;      // Nuevo: fecha del mejor precio histórico
 }
 export interface ProductDetail {
   id: number; name: string; image_url: string | null; created_at: string; pages: Page[];

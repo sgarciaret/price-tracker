@@ -1,6 +1,6 @@
 export type Status = 'ok' | 'not_found' | 'blocked' | 'error';
 
-export interface ProductRow { id: number; name: string; image_url: string | null; created_at: string }
+export interface ProductRow { id: number; name: string; image_url: string | null; created_at: string; best_price: number | null; best_price_at: string | null }
 export interface PageRow { id: number; product_id: number; url: string; store: string; css_selector: string | null; created_at: string }
 export interface CheckRow {
   id: number; page_id: number; price: number | null; currency: string | null;

@@ -37,6 +37,8 @@ export function createFakeRepo(): Repo {
             page_count: pagesWithLast.length,
             last_check_at,
             best: best ? { price: best.last_check!.price!, currency: best.last_check!.currency, store: best.store } : null,
+            best_price: p.best_price,
+            best_price_at: p.best_price_at,
           };
         }),
       );
@@ -60,7 +62,7 @@ export function createFakeRepo(): Repo {
       };
     },
     async createProduct(name, imageUrl) {
-      const row: ProductRow = { id: nextId++, name, image_url: imageUrl, created_at: now() };
+      const row: ProductRow = { id: nextId++, name, image_url: imageUrl, created_at: now(), best_price: null, best_price_at: null };
       products.push(row);
       return { ...row };
     },
@@ -115,6 +117,19 @@ export function createFakeRepo(): Repo {
         checked_at: now(),
       };
       checks.push(row);
+
+      // Actualiza el mejor precio del producto si el nuevo precio es más bajo.
+      if (c.price != null) {
+        const page = pages.find((p) => p.id === c.pageId);
+        if (page) {
+          const product = products.find((p) => p.id === page.product_id);
+          if (product && (product.best_price == null || c.price < product.best_price)) {
+            product.best_price = c.price;
+            product.best_price_at = row.checked_at;
+          }
+        }
+      }
+
       return { ...row };
     },
     async setImageIfEmpty(productId, imageUrl) {

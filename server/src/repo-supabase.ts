@@ -10,6 +10,8 @@ const toProduct = (r: ProductRow): ProductRow => ({
   name: r.name,
   image_url: r.image_url,
   created_at: iso(r.created_at),
+  best_price: r.best_price,
+  best_price_at: r.best_price_at ? iso(r.best_price_at) : null,
 });
 const toPage = (r: PageRow): PageRow => ({
   id: r.id,
@@ -173,7 +175,7 @@ export function createSupabaseRepo(client: () => SupabaseClient = getSupabase): 
       return row ? toCheck(row) : null;
     },
     async insertCheck(c) {
-      return toCheck(
+      const check = toCheck(
         unwrap<CheckRow>(
           await from('price_checks')
             .insert({
@@ -188,6 +190,25 @@ export function createSupabaseRepo(client: () => SupabaseClient = getSupabase): 
             .single(),
         ),
       );
+
+      // Actualiza el mejor precio del producto si el nuevo precio es más bajo.
+      if (c.price != null) {
+        const page = unwrap<PageRow | null>(await from('pages').select('*').eq('id', c.pageId).maybeSingle());
+        if (page) {
+          const current = unwrap<{ best_price: number | null } | null>(
+            await from('products').select('best_price').eq('id', page.product_id).maybeSingle(),
+          );
+          if (!current || current.best_price == null || c.price < current.best_price) {
+            unwrap(
+              await from('products')
+                .update({ best_price: c.price, best_price_at: check.checked_at })
+                .eq('id', page.product_id),
+            );
+          }
+        }
+      }
+
+      return check;
     },
     async setImageIfEmpty(productId, imageUrl) {
       unwrap(

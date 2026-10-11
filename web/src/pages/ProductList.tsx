@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { api, formatPrice, type ProductSummary } from '../api';
+import { api, formatPrice, formatDate, type ProductSummary } from '../api';
 import { Alert } from '../components/ui/Alert';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -108,6 +108,12 @@ export function ProductList() {
                       </p>
                     ) : (
                       <p className="text-sm text-slate-400">Sin precios comprobados</p>
+                    )}
+                    {p.best_price != null && (
+                      <p className="text-xs text-slate-500">
+                        Precio más bajo histórico: <span className="font-medium text-slate-700">{formatPrice(p.best_price)}</span>{' '}
+                        <span className="text-slate-400">({formatDate(p.best_price_at!)})</span>
+                      </p>
                     )}
                   </div>
                 </Link>
