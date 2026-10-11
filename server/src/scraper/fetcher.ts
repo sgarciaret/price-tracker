@@ -5,6 +5,25 @@ export const USER_AGENT =
 
 const TIMEOUT_MS = 20_000;
 
+export const PROTECTED_DOMAINS = [
+  'carrefour.es',
+  'www.carrefour.es',
+] as const;
+
+export const JITTER_MIN_MS = 1_000;
+export const JITTER_MAX_MS = 3_000;
+
+export const BLOCK_RETRY_STATUS = [403, 429] as const;
+
+export function isProtectedDomain(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return PROTECTED_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+  } catch {
+    return false;
+  }
+}
+
 export interface FetchResult { status: number; html: string; finalUrl: string }
 
 export async function fetchStatic(url: string): Promise<FetchResult> {
@@ -45,6 +64,25 @@ export async function fetchWithBrowser(url: string): Promise<FetchResult> {
     userAgent: USER_AGENT,
     locale: 'es-ES',
     viewport: { width: 1366, height: 900 },
+    extraHTTPHeaders: {
+      'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", ";Not_A Brand";v="24"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-site': 'none',
+      'sec-fetch-user': '?1',
+      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'accept-language': 'es-ES,es;q=0.9,en;q=0.8',
+      'accept-encoding': 'gzip, deflate, br',
+      'upgrade-insecure-requests': '1',
+    },
+  });
+  await context.addInitScript(() => {
+    // Oculta huella de automatización
+    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    // @ts-ignore
+    window.chrome = { runtime: {} };
   });
   try {
     const page = await context.newPage();
