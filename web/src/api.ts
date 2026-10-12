@@ -9,19 +9,54 @@ export interface Page {
   css_selector: string | null; created_at: string; last_check: Check | null;
   best_price: number | null;
   best_price_at: string | null;
+  best_currency: string | null;
 }
+export interface Fx {
+  base: string;
+  rates: Record<string, number>;
+}
+
+export interface Alert {
+  id: number;
+  product_id: number;
+  page_id: number | null;
+  kind: 'target' | 'drop';
+  price: number;
+  currency: string | null;
+  price_converted: number;
+  comparison_currency: string;
+  baseline_price: number | null;
+  baseline_currency: string | null;
+  baseline_converted: number | null;
+  threshold: number;
+  threshold_currency: string | null;
+  created_at: string;
+  read_at: string | null;
+  product_name?: string;
+}
+
 export interface ProductSummary {
   id: number; name: string; image_url: string | null; created_at: string;
   page_count: number; last_check_at: string | null;
-  best: { price: number; currency: string; store: string } | null;
-  best_price: number | null;         // Nuevo: precio más bajo histórico
-  best_price_at: string | null;      // Nuevo: fecha del mejor precio histórico
+  best: { price: number; currency: string | null; store: string } | null;
+  best_price: number | null;
+  best_price_at: string | null;
+  best_currency: string | null;
+  stores: string[];
+  last_status: Status | null;
+  unread_alerts: number;
 }
 export interface ProductDetail {
   id: number; name: string; image_url: string | null; created_at: string; pages: Page[];
+  fx: Fx;
+  best_page_id: number | null;
+  target_price: number | null;
+  target_currency: string;
+  target_drop_pct: number | null;
 }
 
 let onUnauthorized: (() => void) | null = null;
+let onAlertsChanged: (() => void) | null = null;
 
 const CLIENT_CACHE_TTL_MS = 30 * 1000;
 
@@ -82,6 +117,14 @@ export function setOnUnauthorized(handler: (() => void) | null): void {
   onUnauthorized = handler;
 }
 
+export function setOnAlertsChanged(handler: (() => void) | null): void {
+  onAlertsChanged = handler;
+}
+
+function notifyAlertsChanged() {
+  onAlertsChanged?.();
+}
+
 async function req<T>(method: string, url: string, body?: unknown, opts: { allowUnauthorized?: boolean } = {}): Promise<T> {
   const res = await fetch(url, {
     method,
@@ -89,7 +132,6 @@ async function req<T>(method: string, url: string, body?: unknown, opts: { allow
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401 && !opts.allowUnauthorized) {
-    // Sesión caducada (o ausente): se avisa al AuthProvider y se corta la petición.
     onUnauthorized?.();
     throw new Error('Sesión caducada');
   }
@@ -100,9 +142,18 @@ async function req<T>(method: string, url: string, body?: unknown, opts: { allow
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
+export function convertPrice(price: number, fromCurrency: string, toCurrency: string, rates: Record<string, number>): number | null {
+  if (fromCurrency === toCurrency) return price;
+  const fromRate = rates[fromCurrency];
+  const toRate = rates[toCurrency];
+  if (fromRate == null || toRate == null || fromRate === 0) return null;
+  // rates[c] = unidades de c por 1 base
+  // precio en fromCurrency -> base -> toCurrency
+  const inBase = price / fromRate;
+  return inBase * toRate;
+}
+
 export const api = {
-  // Un 401 aquí significa credenciales incorrectas, no sesión caducada:
-  // no se dispara el manejador y el error lo pinta la pantalla de login.
   login: (email: string, password: string) =>
     req<{ authenticated: boolean }>('POST', '/api/auth/login', { email, password }, { allowUnauthorized: true }),
   logout: async () => {
@@ -130,9 +181,10 @@ export const api = {
     invalidateClientProducts(res.id);
     return res;
   },
-  updateProduct: async (id: number, name: string, image_url: string | null) => {
-    const res = await req<ProductSummary>('PUT', `/api/products/${id}`, { name, image_url });
+  updateProduct: async (id: number, name: string, image_url: string | null, target_price?: number | null, target_currency?: string, target_drop_pct?: number | null) => {
+    const res = await req<ProductSummary>('PUT', `/api/products/${id}`, { name, image_url, target_price, target_currency, target_drop_pct });
     invalidateClientProducts(id);
+    notifyAlertsChanged();
     return res;
   },
   deleteProduct: async (id: number) => {
@@ -156,12 +208,23 @@ export const api = {
   checkPage: async (id: number) => {
     const res = await req<Page>('POST', `/api/pages/${id}/check`);
     invalidateClientProducts(res.product_id);
+    notifyAlertsChanged();
     return res;
   },
   checkProduct: async (id: number) => {
     const res = await req<ProductDetail>('POST', `/api/products/${id}/check`);
     invalidateClientProducts(id);
+    notifyAlertsChanged();
     return res;
+  },
+  listAlerts: async () => req<Alert[]>('GET', '/api/alerts'),
+  markAlertRead: async (id: number) => {
+    await req<void>('POST', `/api/alerts/${id}/read`);
+    notifyAlertsChanged();
+  },
+  markAllAlertsRead: async () => {
+    await req<void>('POST', '/api/alerts/read-all');
+    notifyAlertsChanged();
   },
 };
 
@@ -173,7 +236,20 @@ export function formatPrice(price: number, currency = 'EUR') {
   }
 }
 
+export function convert(
+  price: number | null | undefined,
+  currency: string | null | undefined,
+  rates: Record<string, number>,
+  base: string,
+): number | null {
+  if (price == null || currency == null) return null;
+  if (currency === base) return price;
+  const rate = rates[currency];
+  if (rate == null || rate === 0) return null;
+  // rates[c] = unidades de c que vale 1 unidad de base
+  return price / rate;
+}
+
 export function formatDate(isoDate: string) {
-  // La API devuelve las fechas en ISO 8601 con `Z` (UTC)
   return new Date(isoDate).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
 }

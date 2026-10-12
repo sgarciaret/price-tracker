@@ -14,6 +14,8 @@ import {
 import { MemoryCache } from './cache.js';
 import type { PageRow, ProductDetailRow, ProductSummaryRow, Repo } from './repo.js';
 import { checkUrl } from './scraper/index.js';
+import { evaluateAlerts } from './alerts.js';
+import type { FxPort } from './fx.js';
 
 const limit = pLimit(3);
 
@@ -34,6 +36,9 @@ const idParam = z.object({ id: z.coerce.number().int().positive() });
 const productBody = z.object({
   name: z.string().trim().min(1).max(200),
   image_url: z.url().trim().nullish().or(z.literal('').transform(() => null)),
+  target_price: z.number().positive().nullish(),
+  target_currency: z.string().length(3).nullish(),
+  target_drop_pct: z.number().positive().max(100).nullish(),
 });
 const pageBody = z.object({
   url: z.url().trim().refine((u) => /^https?:/i.test(u), 'Debe ser http(s)'),
@@ -49,9 +54,13 @@ export interface RoutesOptions {
   repo: Repo;
   auth: AuthPort;
   cache?: MemoryCache;
+  fx?: FxPort;
 }
 
-export async function routes(app: FastifyInstance, { repo, auth, cache = new MemoryCache() }: RoutesOptions) {
+export async function routes(
+  app: FastifyInstance,
+  { repo, auth, cache = new MemoryCache(), fx = { getRates: async () => ({ base: 'EUR', rates: { EUR: 1 } }) } }: RoutesOptions,
+) {
   const pageWithLast = async (p: PageRow) => ({ ...p, last_check: await repo.lastCheck(p.id) });
 
   const invalidateProduct = (productId?: number) => {
@@ -157,9 +166,22 @@ export async function routes(app: FastifyInstance, { repo, auth, cache = new Mem
   api.put('/api/products/:id', { schema: { params: idParam, body: productBody } }, async (req, reply) => {
     const { id } = req.params;
     const body = req.body;
-    const row = await repo.updateProduct(id, body.name, body.image_url ?? null);
+    const row = await repo.updateProduct(
+      id,
+      body.name,
+      body.image_url ?? null,
+      body.target_price ?? undefined,
+      body.target_currency ?? undefined,
+      body.target_drop_pct ?? undefined,
+    );
     if (!row) return reply.code(404).send({ error: 'Producto no encontrado' });
     invalidateProduct(id);
+
+    // Evaluar alertas al guardar objetivo
+    if (body.target_price !== undefined || body.target_drop_pct !== undefined) {
+      await evaluateAlerts({ repo, fx, productId: id });
+    }
+
     return row;
   });
 
@@ -204,7 +226,13 @@ export async function routes(app: FastifyInstance, { repo, auth, cache = new Mem
     if (!page) return reply.code(404).send({ error: 'Página no encontrada' });
     await runCheck(page);
     invalidateProduct(page.product_id);
-    return pageWithLast(page);
+
+    // Evaluar alertas tras comprobación individual
+    await evaluateAlerts({ repo, fx, productId: page.product_id, pageId: page.id });
+
+    // Re-fetchpear la página para obtener best_price/best_price_at actualizados
+    const updated = await repo.getPage(id);
+    return pageWithLast(updated ?? page);
   });
 
   api.post('/api/products/:id/check', { schema: { params: idParam } }, async (req, reply) => {
@@ -213,10 +241,30 @@ export async function routes(app: FastifyInstance, { repo, auth, cache = new Mem
     const pages = await repo.listPages(id);
     await Promise.all(pages.map(runCheck));
     invalidateProduct(id);
+
+    // Evaluar alertas tras "Comprobar todas" - una sola vez
+    await evaluateAlerts({ repo, fx, productId: id });
+
     const detail = await repo.getProductDetail(id);
     if (detail) {
       cache.set(`products:detail:${id}`, detail);
     }
     return detail ?? reply.code(404).send({ error: 'Producto no encontrado' });
+  });
+
+  // Alerts endpoints
+  api.get('/api/alerts', async () => {
+    return repo.listAlerts(100);
+  });
+
+  api.post('/api/alerts/:id/read', { schema: { params: idParam } }, async (req, reply) => {
+    const { id } = req.params;
+    await repo.markAlertRead(id);
+    return reply.code(204).send();
+  });
+
+  api.post('/api/alerts/read-all', async (req, reply) => {
+    await repo.markAllAlertsRead();
+    return reply.code(204).send();
   });
 }

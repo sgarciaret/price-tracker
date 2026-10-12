@@ -1,6 +1,6 @@
 # SPEC 12 — Monedas, alertas de precio y filtros de lista
 
-> **Status:** Aprobado
+> **Status:** Implementado
 > **Depends on:** SPEC 09-precio-mejor-collection.md, SPEC 11-mejor-precio-tienda-detalle.md
 > **Date:** 2026-10-12
 > **Objective:** Comparar los precios convertidos a una moneda base con tasas de cambio, alertar in-app cuando se cumple un precio objetivo o una bajada porcentual y permitir buscar y filtrar la lista de productos.

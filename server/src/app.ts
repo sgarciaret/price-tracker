@@ -9,14 +9,16 @@ import { MemoryCache } from './cache.js';
 import type { Repo } from './repo.js';
 import { createSupabaseRepo } from './repo-supabase.js';
 import { routes } from './routes.js';
+import { createHttpFx, type FxPort } from './fx.js';
 
 export interface AppDeps {
   repo?: Repo;
   auth?: AuthPort;
   cache?: MemoryCache;
+  fx?: FxPort;
 }
 
-export async function buildApp({ repo = createSupabaseRepo(), auth = createSupabaseAuth(), cache }: AppDeps = {}) {
+export async function buildApp({ repo = createSupabaseRepo(undefined, createHttpFx()), auth = createSupabaseAuth(), cache, fx = createHttpFx() }: AppDeps = {}) {
   const app = Fastify({ logger: { level: 'info' } });
 
   const allowedOrigins: (string | RegExp)[] = [
@@ -35,7 +37,7 @@ export async function buildApp({ repo = createSupabaseRepo(), auth = createSupab
   }
 
   await app.register(cors, { origin: allowedOrigins });
-  await app.register(routes, { repo, auth, cache });
+  await app.register(routes, { repo, auth, cache, fx });
 
   // En modo "start", sirve el frontend compilado si existe
   const webDist = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
